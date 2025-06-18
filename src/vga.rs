@@ -1,15 +1,6 @@
 use core::fmt;
 use spin::{lazy::Lazy, mutex::Mutex};
 
-/// A global `Writer` used by `print!` and `println` to write the VGA buffer.
-pub static WRITER: Lazy<Mutex<Writer>> = Lazy::new(|| {
-    Mutex::new(Writer {
-        cursor_column: 0,
-        cursor_row: 0,
-        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
-    })
-});
-
 /// The color palette used by `VGAChar`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -54,6 +45,15 @@ struct Buffer {
     chars: [[VGAChar; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
+/// A global `Writer` used by `print!` and `println` to write the VGA buffer.
+pub static WRITER: Lazy<Mutex<Writer>> = Lazy::new(|| {
+    Mutex::new(Writer {
+        cursor_column: 0,
+        cursor_row: 0,
+        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+    })
+});
+
 /// The writer used to write bytes to the `VGA`.
 pub struct Writer {
     cursor_column: usize,
@@ -79,7 +79,7 @@ impl Writer {
     }
 
     /// Writes `s` to VGA as an sequence of bytes using `fg` as the text color and `bg` as the background color.
-    pub fn write_str(&mut self, s: &str, fg: Color, bg: Color) {
+    fn write_str(&mut self, s: &str, fg: Color, bg: Color) {
         for byte in s.bytes() {
             self.write_char(byte, fg, bg);
         }
@@ -114,7 +114,7 @@ impl fmt::Write for Writer {
 
 #[macro_export]
 macro_rules! print {
-    ($($args:tt)+) => ($crate::vga::print(format_args!($($args)+)));
+    ($($args:tt)+) => ($crate::vga::_print(format_args!($($args)+)));
 }
 
 #[macro_export]
@@ -123,7 +123,13 @@ macro_rules! println {
     ($($arg:tt)+) => ($crate::print!("{}\n", format_args!($($arg)+)));
 }
 
-pub fn print(args: fmt::Arguments) {
+/// Used by `print!` and `println!` to write to the VGA buffer.
+pub fn _print(args: fmt::Arguments) {
     use fmt::Write;
     write!(WRITER.lock(), "{args}").unwrap();
+}
+
+/// Prints `s` using `fg` as the text color and `bg` as the background color.
+pub fn print_color(s: &str, fg: Color, bg: Color) {
+    WRITER.lock().write_str(s, fg, bg);
 }

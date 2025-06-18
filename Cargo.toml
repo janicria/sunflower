@@ -12,3 +12,4 @@ panic = "abort"
 [dependencies]
 bootloader = "0.9"
 spin = "0.10.0"
+x86 = "0.52.0"
