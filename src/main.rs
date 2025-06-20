@@ -22,6 +22,7 @@ pub extern "C" fn _start() -> ! {
 
     // None::<u8>.unwrap();
     // unsafe { core::arch::asm!("mov dx, 0; div dx") }
+    // unsafe { *(0x88888888 as *mut u64) = 42 };
 
     loop {}
 }
