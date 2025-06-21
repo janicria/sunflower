@@ -6,33 +6,44 @@ use core::panic::PanicInfo;
 /// Allows writing to the VGA text buffer
 #[macro_use]
 mod vga;
-///
+/// Handles various interrupts
 mod interrupts;
 
-#[allow(clippy::empty_loop)]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
     // Print welcome message
     use vga::Color;
     print!("Welcome to ");
     vga::print_color("Sunflower!\n", Color::LightCyan, Color::Black);
-    
+
     interrupts::init();
-    vga::print_color("All startup tasks completed\n\n", Color::Green, Color::Black);
+    vga::print_color("All startup tasks completed! ", Color::Green, Color::Black);
+    vga::print_color(str::from_utf8(&[1]).unwrap(), Color::Green, Color::Black); // happy face
+    println!("\n");
 
-    // None::<u8>.unwrap();
-    // unsafe { core::arch::asm!("mov dx, 0; div dx") }
-    // unsafe { *(0x88888888 as *mut u64) = 42 };
+    // unsafe { core::arch::asm!("int 42") }
+    // interrupts::triple_fault();
+    // unsafe { core::arch::asm!("int3") }
+    // unsafe { core::arch::asm!("ud2") }
+    // unsafe { *(0x8 as *mut u64) = 42 };
 
-    loop {}
+    idle()
+}
+
+/// Enters 'idle' mode.
+fn idle() -> ! {
+    unsafe {
+        core::arch::asm!("hlt");
+        core::hint::unreachable_unchecked()
+    }
 }
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!(
-        "PANIC OCCURED: {}\nLocation: {}",
+        "PANIC OCCURRED: {}\nLocation: {}",
         info.message(),
         info.location().unwrap()
     );
-    loop {}
+    idle()
 }
