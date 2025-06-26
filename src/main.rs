@@ -8,6 +8,8 @@ use core::panic::PanicInfo;
 mod vga;
 /// Handles various interrupts
 mod interrupts;
+/// Handles writing and reading from specific I/O ports
+mod ports;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
@@ -21,20 +23,21 @@ pub extern "C" fn _start() -> ! {
     vga::print_color(str::from_utf8(&[1]).unwrap(), Color::Green, Color::Black); // happy face
     println!("\n");
 
-    // unsafe { core::arch::asm!("int 42") }
+    // unsafe { core::arch::asm!("int 42") } // gpf
     // interrupts::triple_fault();
-    // unsafe { core::arch::asm!("int3") }
-    // unsafe { core::arch::asm!("ud2") }
-    // unsafe { *(0x8 as *mut u64) = 42 };
+    // unsafe { core::arch::asm!("int3") } // breakpoint
+    // unsafe { core::arch::asm!("ud2")    // invalid op
+    // unsafe { *(0x8 as *mut u64) = 42 }; // page fault
 
     idle()
 }
 
 /// Enters 'idle' mode.
 fn idle() -> ! {
-    unsafe {
-        core::arch::asm!("hlt");
-        core::hint::unreachable_unchecked()
+    loop {
+        unsafe {
+            core::arch::asm!("hlt");
+        }
     }
 }
 

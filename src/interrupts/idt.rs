@@ -12,7 +12,7 @@ pub struct Idt([InterruptDescriptor; 256]);
 #[repr(C, packed)]
 struct IDTDescriptor {
     size: u16,
-    offset: *const Idt
+    offset: *const Idt,
 }
 
 impl Idt {
@@ -31,12 +31,14 @@ impl Idt {
     pub(super) fn load(&self) {
         let descriptor = IDTDescriptor {
             size: (size_of::<Self>() - 1) as u16,
-            offset: self
+            offset: self,
         };
 
         unsafe {
             core::arch::asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax));
         }
+
+        println!("Initialised IDT");
     }
 }
 
@@ -44,12 +46,12 @@ impl Idt {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct InterruptDescriptor {
-    offset_low: u16,           // offset bits 0..15
-    selector: u16, // segment selector in the gdt
-    ist: u8,                   // ist offset
-    attributes: u8,            // gate type, dpl, and present
-    offset_middle: u16,        // offset bits 16..31
-    offset_high: u32,          // offset bits 32..63
+    offset_low: u16,    // offset bits 0..15
+    selector: u16,      // segment selector in the gdt
+    ist: u8,            // ist offset
+    attributes: u8,     // gate type, dpl, and present
+    offset_middle: u16, // offset bits 16..31
+    offset_high: u32,   // offset bits 32..63
     reserved: u32,
 }
 

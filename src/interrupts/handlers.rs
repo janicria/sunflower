@@ -1,5 +1,7 @@
 use super::IDT;
 use super::idt::Idt;
+use crate::interrupts::keyboard;
+use crate::ports;
 
 /// The stack frame right after an exception occurs.
 #[derive(Debug)]
@@ -31,21 +33,47 @@ macro_rules! handler_wrapper {
     ($name: ident) => {{
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
+            #[allow(unused_unsafe)]
             unsafe {
                 core::arch::naked_asm!("mov rdi, rsp", concat!("call ", stringify!($name)), "iretq")
             }
         }
         wrapper
     }};
+}
+
+/// Creates a wrapper function for the handler which requires an error code with name `name`.
+macro_rules! err_code_handler_wrapper {
     (err_code $name: ident) => {{
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
+            #[allow(unused_unsafe)]
             unsafe {
                 core::arch::naked_asm!(
                     "pop rsi",      // err code
                     "mov rdi, rsp", // stack frame
                     concat!("call ", stringify!($name)),
                     "iretq"
+                )
+            }
+        }
+        wrapper
+    }};
+}
+
+/// Creates a wrapper function which calls the handler with name `name` then sends the eoi command.
+macro_rules! send_eoi_handler {
+    ($eoi: expr, $name: ident) => {{
+        #[unsafe(naked)]
+        extern "C" fn wrapper() -> ! {
+            #[allow(unused_unsafe)]
+            unsafe {
+                core::arch::naked_asm!(
+                    "mov rdi, rsp", // stack frame
+                    concat!("call ", stringify!($name)),
+                    concat!("mov rdi, ", stringify!($eoi)),
+                    "call eoi", // send eoi command
+                    "iretq",
                 )
             }
         }
@@ -71,10 +99,17 @@ basic_handler!(breakpoint_handler, "Breakpoint");
 pub(super) fn add_handlers(idt: Idt) -> Idt {
     idt.set_handler(0, handler_wrapper!(divide_by_zero_handler))
         .set_handler(3, handler_wrapper!(breakpoint_handler))
-        .set_handler(8, handler_wrapper!(err_code double_fault_handler))
-        .set_handler(14, handler_wrapper!(err_code page_fault_handler))
+        .set_handler(8, err_code_handler_wrapper!(err_code double_fault_handler))
+        .set_handler(13, err_code_handler_wrapper!(err_code gpf_handler))
+        .set_handler(14, err_code_handler_wrapper!(err_code page_fault_handler))
+        .set_handler(32, send_eoi_handler!(32, timer_handler))
+        .set_handler(33, send_eoi_handler!(33, key_pressed_handler))
         .set_handler(255, handler_wrapper!(cause_triple_fault))
 }
+
+/////////////////////////////////////////////////////////
+// Handlers
+/////////////////////////////////////////////////////////
 
 /// Equals `true` if the bit-th last bit in val is set
 macro_rules! bit_eq {
@@ -101,7 +136,7 @@ Caused by shadow stack access: {sstack}
 Virtual Address: {addr}\n{frame}",
         present = bit_eq!(code, 1, "Page-protection Violation", "Non-present page"),
         access = bit_eq!(code, 2, "Write", "Read"),
-        causer = bit_eq!(code, 3, "User", "Supervisor"),
+        causer = bit_eq!(code, 3, "User program", "Privileged program"),
         rwrite = bit_eq!(code, 4, "Yes", "No"),
         fetch = bit_eq!(code, 5, "Yes", "No"),
         pkey = bit_eq!(code, 6, "Yes", "No"),
@@ -128,6 +163,13 @@ extern "C" fn double_fault_handler(frame: StackFrame, _code: u64) -> ! {
 }
 
 #[unsafe(no_mangle)]
+// todo: print error code
+extern "C" fn gpf_handler(frame: StackFrame, _code: u64) -> ! {
+    println!("EXCEPTION OCCURRED: General protection fault\n{frame}");
+    crate::idle()
+}
+
+#[unsafe(no_mangle)]
 extern "C" fn cause_triple_fault(_frame: StackFrame) {
     println!("Causing deliberate triple fault!");
     unsafe {
@@ -135,4 +177,13 @@ extern "C" fn cause_triple_fault(_frame: StackFrame) {
         core::arch::asm!("ud2"); // cause double fault which escalates to a triple fault
         core::hint::unreachable_unchecked()
     }
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn timer_handler(_frame: StackFrame) {}
+
+#[unsafe(no_mangle)]
+extern "C" fn key_pressed_handler(_frame: StackFrame) {
+    let key = ports::readb(ports::Port::PS2Data);
+    keyboard::print_key(key);
 }

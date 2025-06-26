@@ -3,13 +3,15 @@ use spin::Lazy;
 
 mod handlers;
 mod idt;
+mod keyboard;
+mod pics;
 
 static IDT: Lazy<Idt> = Lazy::new(|| handlers::add_handlers(Idt::new()));
 
 /// Creates the IDT.
 pub fn init() {
     IDT.load();
-    println!("Initialised IDT")
+    pics::init();
 }
 
 /// Causes a triple fault.
