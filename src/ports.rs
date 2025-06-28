@@ -1,3 +1,4 @@
+/// An I/O port required to written to or read from.
 #[repr(u16)]
 pub enum Port {
     MainPicCmd = 0x20,
@@ -6,6 +7,8 @@ pub enum Port {
     SecondaryPicData = 0x00A1,
     PS2Data = 0x60,
     PS2Status = 0x64,
+    VGAIndexRegister0x3D4 = 0x3D4,
+    VgaCursorPos = 0x3D5,
 }
 
 /// Writes `val` to port `port`.

@@ -1,4 +1,4 @@
-use crate::ports::{Port, writeb};
+use crate::{ports::{writeb, Port}, vga};
 
 const MAIN_OFFSET: u8 = 32;
 const SECONDARY_OFFSET: u8 = 40;
@@ -50,7 +50,7 @@ pub(super) fn init() {
 
         // Enable external interrupts
         core::arch::asm!("sti");
-        println!("Initialised PICs & set external interrupts");
+        vga::print_done("Initialised PICs");
     };
 }
 

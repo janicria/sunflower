@@ -8,7 +8,7 @@ use core::panic::PanicInfo;
 mod vga;
 /// Handles various interrupts
 mod interrupts;
-/// Handles writing and reading from specific I/O ports
+/// Handles writing to and reading from specific I/O ports
 mod ports;
 
 #[unsafe(no_mangle)]
@@ -18,6 +18,7 @@ pub extern "C" fn _start() -> ! {
     print!("Welcome to ");
     vga::print_color("Sunflower!\n", Color::LightCyan, Color::Black);
 
+    vga::init();
     interrupts::init();
     vga::print_color("All startup tasks completed! ", Color::Green, Color::Black);
     vga::print_color(str::from_utf8(&[1]).unwrap(), Color::Green, Color::Black); // happy face

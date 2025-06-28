@@ -1,3 +1,5 @@
+use crate::vga;
+
 /// gate type = interrupt, dpl = 0, present = 1
 const INTERRUPT: u8 = 0x8E;
 /// gate type = trap, dpl = 0, present = 1
@@ -38,7 +40,7 @@ impl Idt {
             core::arch::asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax));
         }
 
-        println!("Initialised IDT");
+        vga::print_done("Loaded IDT");
     }
 }
 
