@@ -10,19 +10,23 @@ mod vga;
 mod interrupts;
 /// Handles writing to and reading from specific I/O ports
 mod ports;
+/// Allows playing sounds through the PC speaker
+mod speaker;
+
+/// How many ticks the kernel has been running for.
+/// Increases every ~18.2 Hz
+static mut TIME: u64 = 0;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    // Print welcome message
-    use vga::Color;
-    print!("Welcome to ");
-    vga::print_color("Sunflower!\n", Color::LightCyan, Color::Black);
-
     vga::init();
     interrupts::init();
+
+    use vga::Color;
     vga::print_color("All startup tasks completed! ", Color::Green, Color::Black);
     vga::print_color(str::from_utf8(&[1]).unwrap(), Color::Green, Color::Black); // happy face
     println!("\n");
+    speaker::play_chime();
 
     // unsafe { core::arch::asm!("int 42") } // gpf
     // interrupts::triple_fault();
@@ -39,6 +43,17 @@ fn idle() -> ! {
         unsafe {
             core::arch::asm!("hlt");
         }
+    }
+}
+
+/// Waits for `ticks` ticks.
+fn wait(ticks: u64) {
+    unsafe {
+        let target_time = TIME + ticks;
+        while TIME < target_time {
+            core::arch::asm!("sti;hlt;cli");
+        }
+        core::arch::asm!("sti")
     }
 }
 

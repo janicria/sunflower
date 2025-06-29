@@ -1,10 +1,6 @@
 use crate::vga;
 
-/// gate type = interrupt, dpl = 0, present = 1
-const INTERRUPT: u8 = 0x8E;
-/// gate type = trap, dpl = 0, present = 1
-const TRAP: u8 = 0x8F;
-
+/// See the various handler wrapper macros in the handlers module
 pub(super) type Handler = extern "C" fn() -> !;
 
 /// The Interrupt Descriptor Table
@@ -25,7 +21,7 @@ impl Idt {
 
     /// Sets the table's entry with id `entry_id`
     pub(super) fn set_handler(mut self, entry_id: usize, handler: Handler) -> Self {
-        self.0[entry_id] = InterruptDescriptor::new(INTERRUPT, handler);
+        self.0[entry_id] = InterruptDescriptor::new(handler);
         self
     }
 
@@ -60,7 +56,7 @@ pub struct InterruptDescriptor {
 #[allow(clippy::fn_to_numeric_cast)]
 impl InterruptDescriptor {
     /// Returns a new descriptor using `attr` as it's attributes and `handler` as it's offset.
-    fn new(attr: u8, handler: Handler) -> Self {
+    fn new(handler: Handler) -> Self {
         let offset_ptr = handler as u64;
         InterruptDescriptor {
             selector: load_cs(),
@@ -68,7 +64,7 @@ impl InterruptDescriptor {
             offset_middle: (offset_ptr >> 16) as u16,
             offset_high: (offset_ptr >> 32) as u32,
             ist: 0,
-            attributes: attr,
+            attributes: 0x8E, // gate type = interrupt, dpl = 0, present = 1
             reserved: 0,
         }
     }

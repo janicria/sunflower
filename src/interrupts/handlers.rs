@@ -1,7 +1,7 @@
 use super::IDT;
 use super::idt::Idt;
 use crate::interrupts::keyboard;
-use crate::ports;
+use crate::{ports, speaker};
 
 /// The stack frame right after an exception occurs.
 #[derive(Debug)]
@@ -35,7 +35,13 @@ macro_rules! handler_wrapper {
         extern "C" fn wrapper() -> ! {
             #[allow(unused_unsafe)]
             unsafe {
-                core::arch::naked_asm!("mov rdi, rsp", concat!("call ", stringify!($name)), "iretq")
+                core::arch::naked_asm!(
+                    "mov rdi, 0", // extrabad = false,
+                    "call play_error",
+                    "mov rdi, rsp",
+                    concat!("call ", stringify!($name)),
+                    "iretq"
+                )
             }
         }
         wrapper
@@ -50,6 +56,8 @@ macro_rules! err_code_handler_wrapper {
             #[allow(unused_unsafe)]
             unsafe {
                 core::arch::naked_asm!(
+                    "mov rdi, 1", // extrabad = true
+                    "call play_error",
                     "pop rsi",      // err code
                     "mov rdi, rsp", // stack frame
                     concat!("call ", stringify!($name)),
@@ -172,6 +180,7 @@ extern "C" fn gpf_handler(frame: StackFrame, _code: u64) -> ! {
 #[unsafe(no_mangle)]
 extern "C" fn cause_triple_fault(_frame: StackFrame) {
     println!("Causing deliberate triple fault!");
+    speaker::play_duration(300, 9, false);
     unsafe {
         core::ptr::write(IDT.as_mut_ptr(), Idt::new()); // nuke IDT
         core::arch::asm!("ud2"); // cause double fault which escalates to a triple fault
@@ -180,7 +189,17 @@ extern "C" fn cause_triple_fault(_frame: StackFrame) {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn timer_handler(_frame: StackFrame) {}
+extern "C" fn timer_handler(_frame: StackFrame) {
+    unsafe {
+        crate::TIME += 1;
+
+        if speaker::REPEATING {
+            // Quickly disable to current sound
+            let sound = ports::readb(ports::Port::Speaker) ^ 0b0000_0011;
+            ports::writeb(ports::Port::Speaker, sound)
+        }
+    }
+}
 
 #[unsafe(no_mangle)]
 extern "C" fn key_pressed_handler(_frame: StackFrame) {

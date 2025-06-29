@@ -148,23 +148,31 @@ impl Writer {
     pub fn shift_cursor(&mut self, direction: CursorShift) {
         match direction {
             CursorShift::Left => {
-                if self.cursor_column != 0 {
-                    self.cursor_column -= 1;
+                if self.cursor_column == 0 {
+                    self.cursor_column = BUFFER_WIDTH - 1;
+                } else {
+                    self.cursor_column -= 1
                 }
             }
             CursorShift::Right => {
                 if self.cursor_column < BUFFER_WIDTH - 1 {
                     self.cursor_column += 1
+                } else {
+                    self.cursor_column = 0
                 }
             }
             CursorShift::Up => {
-                if self.cursor_row != 0 {
+                if self.cursor_row == 0 {
+                    self.cursor_row = BUFFER_HEIGHT - 1
+                } else {
                     self.cursor_row -= 1
                 }
             }
             CursorShift::Down => {
                 if self.cursor_row < BUFFER_HEIGHT - 1 {
                     self.cursor_row += 1
+                } else {
+                    self.cursor_row = 0
                 }
             }
         };
@@ -206,10 +214,11 @@ pub fn print_color(s: &str, fg: Color, bg: Color) {
 pub(super) fn init() {
     {
         let buf = &mut WRITER.lock().buffer;
-        let first_row = buf.chars[0];
         buf.chars = [[SPACE; BUFFER_WIDTH]; BUFFER_HEIGHT];
-        buf.chars[0] = first_row;
     }
+    // Print welcome message
+    print!("Welcome to ");
+    print_color("Sunflower!\n", Color::LightCyan, Color::Black);
     print_done("Filled VGA")
 }
 
@@ -217,6 +226,5 @@ pub(super) fn init() {
 pub fn print_done(task: &str) {
     print!("[ ");
     print_color("DONE", Color::Lime, Color::Black);
-    print!(" ] ");
-    println!("{task}")
+    println!(" ] {task}");
 }

@@ -6,9 +6,12 @@ pub enum Port {
     SecondaryPicCmd = 0x00A0,
     SecondaryPicData = 0x00A1,
     PS2Data = 0x60,
-    PS2Status = 0x64,
+    // PS2Status = 0x64,
     VGAIndexRegister0x3D4 = 0x3D4,
     VgaCursorPos = 0x3D5,
+    Speaker = 0x61,
+    PITCmd = 0x43,
+    PITChannel2 = 0x42,
 }
 
 /// Writes `val` to port `port`.

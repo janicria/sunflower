@@ -8,7 +8,7 @@ mod pics;
 
 static IDT: Lazy<Idt> = Lazy::new(|| handlers::add_handlers(Idt::new()));
 
-/// Creates the IDT.
+/// Loads the IDT and initialises the PIC.
 pub fn init() {
     IDT.load();
     pics::init();
