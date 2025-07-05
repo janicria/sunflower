@@ -1,7 +1,12 @@
 use core::mem;
 use spin::Mutex;
 
-use crate::vga::{self, CursorShift};
+use crate::{
+    interrupts,
+    ports::{self, Port},
+    state,
+    vga::{self, Color, CursorShift},
+};
 
 #[allow(unused)]
 #[repr(u8)]
@@ -170,24 +175,49 @@ impl TryFrom<Key> for char {
     }
 }
 
-// Prints the scancode in scancode set 1. Assumes US keyboard layout
-pub(super) fn print_key(scancode: u8) {
-    let key: Key = unsafe { mem::transmute(scancode) };
-    match char::try_from(key) {
-        Ok(c) => print!("{c}"),
-        Err(_) => match scancode {
-            0x2A | 0x36 => KEYBOARD.lock().shift = true,   // shift pressed
-            0xAA | 0xB6 => KEYBOARD.lock().shift = false,  // shift released
-            0x3A => KEYBOARD.lock().toggle_caps(),         // caps pressed
-            0x1D => KEYBOARD.lock().ctrl = true,           // left ctrl released
-            0x38 => KEYBOARD.lock().alt = true,            // left alt pressed
-            0xB8 => KEYBOARD.lock().alt = false,           // left alt released
-            0x48 => vga::WRITER.lock().shift_cursor(CursorShift::Up),    // arrow keys up
-            0x4B => vga::WRITER.lock().shift_cursor(CursorShift::Left),  // arrow keys left
-            0x4D => vga::WRITER.lock().shift_cursor(CursorShift::Right), // arrow keys right
-            0x50 => vga::WRITER.lock().shift_cursor(CursorShift::Down),  // arrow keys down
-            0x0E => vga::WRITER.lock().delete_previous(),  // backspace pressed 
-            _ => (),
-        },
+/// Prints the scancode in scancode set 1. Assumes US keyboard layout
+#[unsafe(no_mangle)]
+extern "C" fn key_pressed_handler() {
+    unsafe {
+        let scancode = ports::readb(Port::PS2Data);
+        let key = mem::transmute::<u8, Key>(scancode);
+
+        // Everything has gone wrong equals true
+        if state::FLAGS == state::FLAGS | 0b0000_1000 {
+            return match key {
+                Key::One => interrupts::triple_fault(),
+                Key::Two => {
+                    state::FLAGS |= 0b0001_0000; // return from ehgw = true
+                    vga::print_color("Continuing execution...\n", Color::LightRed)
+                }
+                Key::Three => {
+                    state::FLAGS &= 0b1111_0111; // ehgw = false,
+                    vga::print_color(
+                        "Entered idle mode, this system is now forever trapped idling <3",
+                        Color::Green,
+                    );
+                    vga::WRITER.shift_cursor(CursorShift::Left);
+                }
+                _ => (),
+            };
+        }
+
+        match char::try_from(key) {
+            Ok(c) => print!("{c}"),
+            Err(_) => match scancode {
+                0x2A | 0x36 => KEYBOARD.lock().shift = true, // shift pressed
+                0xAA | 0xB6 => KEYBOARD.lock().shift = false, // shift released
+                0x3A => KEYBOARD.lock().toggle_caps(),       // caps pressed
+                0x1D => KEYBOARD.lock().ctrl = true,         // left ctrl released
+                0x38 => KEYBOARD.lock().alt = true,          // left alt pressed
+                0xB8 => KEYBOARD.lock().alt = false,         // left alt released
+                0x48 => vga::WRITER.shift_cursor(CursorShift::Up), // arrow keys up
+                0x4B => vga::WRITER.shift_cursor(CursorShift::Left), // arrow keys left
+                0x4D => vga::WRITER.shift_cursor(CursorShift::Right), // arrow keys right
+                0x50 => vga::WRITER.shift_cursor(CursorShift::Down), // arrow keys down
+                0x0E => vga::WRITER.delete_previous(),       // backspace pressed
+                _ => (),
+            },
+        }
     }
 }

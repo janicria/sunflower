@@ -1,6 +1,8 @@
-use crate::ports::{self, Port};
+use crate::{
+    ports::{self, Port},
+    state,
+};
 use core::fmt;
-use spin::{lazy::Lazy, mutex::Mutex};
 
 /// The color palette used by `VGAChar`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +34,7 @@ pub struct VGAChar(u16);
 
 impl VGAChar {
     /// Constructs a new color using `fg` as the text color and `bg` as the background color.
-    const fn new(char: u8, fg: Color, bg: Color) -> VGAChar {
+    pub(super) const fn new(char: u8, fg: Color, bg: Color) -> VGAChar {
         VGAChar((char as u16) | (bg as u16) << 12 | (fg as u16) << 8)
     }
 }
@@ -47,14 +49,20 @@ struct Buffer {
     chars: [[VGAChar; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
+impl Buffer {
+    const fn invalid() -> Self {
+        Self {
+            chars: [[VGAChar::new(0, Color::Black, Color::Black); BUFFER_WIDTH]; BUFFER_HEIGHT],
+        }
+    }
+}
+
 /// A global `Writer` used by `print!` and `println` to write the VGA buffer.
-pub static WRITER: Lazy<Mutex<Writer>> = Lazy::new(|| {
-    Mutex::new(Writer {
-        cursor_column: 0,
-        cursor_row: 0,
-        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
-    })
-});
+pub static mut WRITER: Writer = Writer {
+    cursor_column: 0,
+    cursor_row: 0,
+    buffer: &mut Buffer::invalid(),
+};
 
 /// The writer used to write bytes to the `VGA`.
 pub struct Writer {
@@ -73,7 +81,7 @@ pub enum CursorShift {
 
 impl Writer {
     /// Writes `byte` to VGA as a character using `fg` as the text color and `bg` as the background color.
-    fn write_char(&mut self, byte: u8, fg: Color, bg: Color) {
+    pub fn write_char(&mut self, byte: u8, fg: Color, bg: Color) {
         match byte {
             b'\n' => self.newline(),
             byte => {
@@ -90,10 +98,18 @@ impl Writer {
 
     /// Writes `s` to VGA as an sequence of bytes using `fg` as the text color and `bg` as the background color.
     fn write_str(&mut self, s: &str, fg: Color, bg: Color) {
-        for byte in s.bytes() {
-            self.write_char(byte, fg, bg);
+        unsafe {
+            let printing = state::FLAGS == state::FLAGS | 0b0000_0100;
+            state::FLAGS |= 0b0000_0100; // printing = true
+            for byte in s.bytes() {
+                self.write_char(byte, fg, bg);
+            }
+            self.update_cursor_pos();
+            (*(0xb809e as *mut u8)) = 1; // keep waiting char
+            if !printing {
+                state::FLAGS &= 0b1111_1011; // printing = false
+            }
         }
-        self.update_cursor_pos();
     }
 
     /// Prints a newline
@@ -111,7 +127,6 @@ impl Writer {
                 self.buffer.chars[BUFFER_HEIGHT - 1][col] = blank
             }
         } else {
-            // The cursor row will be forever stuck at BUFFER_HEIGHT once it's reached it
             self.cursor_row += 1;
         }
 
@@ -120,8 +135,9 @@ impl Writer {
 
     /// Updates the cursor's position
     fn update_cursor_pos(&self) {
-        let pos = self.cursor_row * BUFFER_WIDTH + self.cursor_column;
         unsafe {
+            let pos = self.cursor_row * BUFFER_WIDTH + self.cursor_column;
+
             // tell vga we're going to be giving it the first byte of the pos
             ports::writeb(Port::VGAIndexRegister0x3D4, 0x0E);
             ports::writeb(Port::VgaCursorPos, (pos >> 8) as u8);
@@ -134,14 +150,14 @@ impl Writer {
 
     /// Deletes the character to the left of the cursor.
     pub fn delete_previous(&mut self) {
-        let (prev_col, prev_row) = if self.cursor_column == 0 {
-            (BUFFER_WIDTH, self.cursor_row - 1)
+        if self.cursor_column == 0 {
+            self.buffer.chars[self.cursor_row - 1][BUFFER_WIDTH - 1] = SPACE;
+            self.shift_cursor(CursorShift::Left);
+            self.shift_cursor(CursorShift::Up);
         } else {
-            (self.cursor_column - 1, self.cursor_row)
-        };
-
-        self.buffer.chars[prev_row][prev_col] = SPACE;
-        self.shift_cursor(CursorShift::Left);
+            self.buffer.chars[self.cursor_row][self.cursor_column - 1] = SPACE;
+            self.shift_cursor(CursorShift::Left);
+        }
     }
 
     /// Attempts to shift the cursor in the direction of `direction`.
@@ -199,32 +215,36 @@ macro_rules! println {
     ($($arg:tt)+) => ($crate::print!("{}\n", format_args!($($arg)+)));
 }
 
-/// Used by `print!` and `println!` to write to the VGA buffer.
+/// Used by `print!` and `println!` to write to the VGA text buffer.
 pub fn _print(args: fmt::Arguments) {
     use fmt::Write;
-    write!(WRITER.lock(), "{args}").unwrap();
+    unsafe { write!(WRITER, "{args}").unwrap() }
 }
 
-/// Prints `s` using `fg` as the text color and `bg` as the background color.
-pub fn print_color(s: &str, fg: Color, bg: Color) {
-    WRITER.lock().write_str(s, fg, bg);
+/// Prints `s` using `fg` as the text color and black as the background color.
+pub fn print_color(s: &str, fg: Color) {
+    unsafe { WRITER.write_str(s, fg, Color::Black) };
 }
 
-/// Fills the buffer with spaces, allowing the cursor to blink anywhere.
+/// Connects the `WRITER` static to the buffer and
+/// fills the buffer with spaces, allowing the cursor to blink anywhere.
 pub(super) fn init() {
-    {
-        let buf = &mut WRITER.lock().buffer;
+    unsafe {
+        let buf = &mut WRITER.buffer;
+        *buf = &mut *(0xb8000 as *mut Buffer);
         buf.chars = [[SPACE; BUFFER_WIDTH]; BUFFER_HEIGHT];
+
+        // Print welcome message
+        print!("Welcome to ");
+        print_color("Sunflower!\n", Color::LightCyan);
+        (*(0xb809e as *mut VGAChar)) = VGAChar::new(1, Color::White, Color::Black); // create waiting char
+        print_done("Connected VGA")
     }
-    // Print welcome message
-    print!("Welcome to ");
-    print_color("Sunflower!\n", Color::LightCyan, Color::Black);
-    print_done("Filled VGA")
 }
 
-/// Prints the done messages used when first booting.
+/// Prints the done messages shown when first booting.
 pub fn print_done(task: &str) {
-    print!("[ ");
-    print_color("DONE", Color::Lime, Color::Black);
+    unsafe { WRITER.write_char(91, Color::White, Color::Black) }; // prints '['
+    print_color(" DONE", Color::Lime);
     println!(" ] {task}");
 }

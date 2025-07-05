@@ -6,13 +6,6 @@ pub(super) type Handler = extern "C" fn() -> !;
 /// The Interrupt Descriptor Table
 pub struct Idt([InterruptDescriptor; 256]);
 
-/// The value used for the lidt instruction to load the IDT.
-#[repr(C, packed)]
-struct IDTDescriptor {
-    size: u16,
-    offset: *const Idt,
-}
-
 impl Idt {
     /// Creates a new, empty table.
     pub(super) fn new() -> Self {
@@ -27,6 +20,13 @@ impl Idt {
 
     /// Loads the table into the IDTR register.
     pub(super) fn load(&self) {
+        /// The value used below for the lidt instruction to load the IDT.
+        #[repr(C, packed)]
+        struct IDTDescriptor {
+            size: u16,
+            offset: *const Idt,
+        }
+
         let descriptor = IDTDescriptor {
             size: (size_of::<Self>() - 1) as u16,
             offset: self,

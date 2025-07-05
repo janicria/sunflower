@@ -16,7 +16,7 @@ pub extern "C" fn eoi(irq: u8) {
     }
 }
 
-/// Initialises both the PICs and enables external interrupts.
+/// Initialises both the PIC and enables external interrupts.
 pub(super) fn init() {
     const MAIN_OFFSET: u8 = 32;
     const SECONDARY_OFFSET: u8 = 40;
@@ -55,7 +55,7 @@ pub(super) fn init() {
 
         // Enable external interrupts
         core::arch::asm!("sti");
-        vga::print_done("Initialised PICs");
+        vga::print_done("Initialised PIC");
     };
 }
 

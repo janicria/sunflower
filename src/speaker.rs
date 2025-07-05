@@ -7,7 +7,8 @@ pub static mut REPEATING: bool = false;
 /// Plays a sound with frequency `freq` using the pc speaker.
 /// Plays the sound continuously if `hold` is set, otherwise repeats between on and off if not.
 ///
-/// Note: QEMU requires extra support to emulate playing sounds through the pc speaker.
+/// Note: QEMU requires extra support to emulate playing sounds through the pc speaker,
+/// and may not be able to produce repeating frequencies when used with certain headphones
 pub fn play(freq: u32, hold: bool) {
     unsafe {
         // Set the second channel in the PIT to freq
@@ -25,26 +26,89 @@ pub fn play(freq: u32, hold: bool) {
     }
 }
 
-/// Plays `freq`, waits `time` ticks then stops.
-pub fn play_duration(freq: u32, time: u64, hold: bool) {
-    play(freq, hold);
+/// Holds `freq` for `time` ticks then stops.
+pub fn hold_duration(freq: u32, time: u64) {
+    play(freq, true);
+    crate::wait(time);
+    stop();
+}
+
+/// Repeats `freq` for `time` ticks then stops.
+pub fn repeat_duration(freq: u32, time: u64) {
+    play(freq, false);
     crate::wait(time);
     stop();
 }
 
 /// Plays the boot chime
 pub fn play_chime() {
-    play_duration(760, 8, true);
-    crate::wait(6);
+    hold_duration(600, 7);
+    hold_duration(620, 9);
 
-    play_duration(630, 4, true);
-    play_duration(530, 6, true);
+    hold_duration(600, 7);
+    hold_duration(780, 20);
+}
 
-    play_duration(630, 4, true);
-    play_duration(530, 6, true);
+pub fn play_song() {
+    // Set 1 - Rising
+    hold_duration(400, 6);
+    hold_duration(430, 6);
+    hold_duration(450, 6);
+    hold_duration(500, 5);
+    hold_duration(550, 5);
 
-    play_duration(630, 8, true);
-    play_duration(800, 10, true);
+    // Set 2 - Beeping 1
+    hold_duration(450, 2);
+    hold_duration(400, 3);
+    hold_duration(500, 5);
+    hold_duration(550, 5);
+
+    // Set 3 - Beeping 2
+    hold_duration(600, 2);
+    hold_duration(620, 2);
+    hold_duration(600, 2);
+    hold_duration(620, 2);
+    hold_duration(600, 2);
+    hold_duration(620, 2);
+    hold_duration(500, 2);
+    hold_duration(480, 2);
+
+    // Set 2 - Beeping 1
+    hold_duration(450, 2);
+    hold_duration(400, 3);
+    hold_duration(500, 5);
+    hold_duration(550, 5);
+
+    // Set 1 - Rising
+    hold_duration(400, 6);
+    hold_duration(430, 6);
+    hold_duration(450, 6);
+    hold_duration(500, 5);
+    hold_duration(550, 5);
+
+    // Set 2 - Beeping 1
+    hold_duration(450, 2);
+    hold_duration(400, 3);
+    hold_duration(500, 5);
+    hold_duration(550, 5);
+
+    // Set 4 - Uh oh
+    repeat_duration(600, 14);
+    hold_duration(500, 16);
+    repeat_duration(600, 14);
+
+    // Set 5 - Fade out
+    hold_duration(550, 2);
+    hold_duration(540, 2);
+    hold_duration(530, 2);
+    hold_duration(520, 2);
+    hold_duration(510, 2);
+    hold_duration(500, 2);
+    hold_duration(490, 2);
+    hold_duration(480, 2);
+    hold_duration(470, 2);
+    hold_duration(460, 2);
+    hold_duration(450, 30);
 }
 
 /// Stops the current sound the pc speaker is playing.
@@ -54,15 +118,5 @@ pub fn stop() {
         let sound = ports::readb(Port::Speaker) & 0b11111100;
         ports::writeb(Port::Speaker, sound);
         REPEATING = false;
-    }
-}
-
-/// Ran when certain interrupts occur
-#[unsafe(no_mangle)]
-extern "C" fn play_error(extrabad: bool) {
-    if extrabad {
-        play_duration(600, 5, true);
-    } else {
-        play_duration(300, 4, true);
     }
 }

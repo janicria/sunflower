@@ -1,7 +1,8 @@
-use super::IDT;
 use super::idt::Idt;
-use crate::interrupts::keyboard;
-use crate::{ports, speaker};
+use crate::{
+    ports, speaker, state,
+    vga::{self, Color},
+};
 
 /// The stack frame right after an exception occurs.
 #[derive(Debug)]
@@ -30,19 +31,19 @@ impl core::fmt::Display for StackFrame {
 
 /// Creates a wrapper function for the handler with name `name`.
 macro_rules! handler_wrapper {
-    ($name: ident) => {{
+    ($name: ident = $id: expr) => {{
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
-            #[allow(unused_unsafe)]
-            unsafe {
-                core::arch::naked_asm!(
-                    "mov rdi, 0", // extrabad = false,
-                    "call play_error",
-                    "mov rdi, rsp",
-                    concat!("call ", stringify!($name)),
-                    "iretq"
-                )
-            }
+            core::arch::naked_asm!(
+                "mov rdi, rsp",
+                concat!("call ", stringify!($name)),
+                "mov al, PREV_EXP", // move prev to second last
+                "mov SECOND_LAST_EXP, al",
+                concat!("mov al, ", stringify!($id)), // move id to prev
+                "mov PREV_EXP, al",
+                "call ohnonotgood",
+                "iretq"
+            )
         }
         wrapper
     }};
@@ -50,20 +51,20 @@ macro_rules! handler_wrapper {
 
 /// Creates a wrapper function for the handler which requires an error code with name `name`.
 macro_rules! err_code_handler_wrapper {
-    (err_code $name: ident) => {{
+    ($name: ident = $id: expr) => {{
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
-            #[allow(unused_unsafe)]
-            unsafe {
-                core::arch::naked_asm!(
-                    "mov rdi, 1", // extrabad = true
-                    "call play_error",
-                    "pop rsi",      // err code
-                    "mov rdi, rsp", // stack frame
-                    concat!("call ", stringify!($name)),
-                    "iretq"
-                )
-            }
+            core::arch::naked_asm!(
+                "pop rsi",      // err code as second arg
+                "mov rdi, rsp", // stack frame as first arg
+                concat!("call ", stringify!($name)),
+                "mov al, PREV_EXP", // move prev to second last
+                "mov SECOND_LAST_EXP, al",
+                concat!("mov al, ", stringify!($id)), // move id to prev
+                "mov PREV_EXP, al",
+                "call ohnonotgood",
+                "iretq"
+            )
         }
         wrapper
     }};
@@ -74,16 +75,14 @@ macro_rules! send_eoi_handler {
     ($eoi: expr, $name: ident) => {{
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
-            #[allow(unused_unsafe)]
-            unsafe {
-                core::arch::naked_asm!(
-                    "mov rdi, rsp", // stack frame
-                    concat!("call ", stringify!($name)),
-                    concat!("mov rdi, ", stringify!($eoi)),
-                    "call eoi", // send eoi command
-                    "iretq",
-                )
-            }
+            core::arch::naked_asm!(
+                concat!("call ", stringify!($name)),
+                "push rdi",
+                concat!("mov rdi, ", stringify!($eoi)),
+                "call eoi", // send eoi command
+                "pop rdi",
+                "iretq",
+            )
         }
         wrapper
     }};
@@ -94,47 +93,40 @@ macro_rules! basic_handler {
     ($name: ident, $error: expr) => {
         #[unsafe(no_mangle)]
         extern "C" fn $name(frame: StackFrame) {
-            println!(concat!("EXCEPTION OCCURRED: ", $error));
-            println!("{frame}");
+            vga::print_color(concat!("EXCEPTION OCCURRED: ", $error), Color::Red);
+            println!("\n{frame}");
         }
     };
 }
 
 basic_handler!(divide_by_zero_handler, "Attempted to divide by 0");
 basic_handler!(breakpoint_handler, "Breakpoint");
+basic_handler!(invalid_op_handler, "Invalid opcode");
+basic_handler!(double_fault_handler, "Double Fault");
+basic_handler!(gpf_handler, "General protection fault");
 
 /// Sets the handlers for the IDT.
 pub(super) fn add_handlers(idt: Idt) -> Idt {
-    idt.set_handler(0, handler_wrapper!(divide_by_zero_handler))
-        .set_handler(3, handler_wrapper!(breakpoint_handler))
-        .set_handler(8, err_code_handler_wrapper!(err_code double_fault_handler))
-        .set_handler(13, err_code_handler_wrapper!(err_code gpf_handler))
-        .set_handler(14, err_code_handler_wrapper!(err_code page_fault_handler))
+    idt.set_handler(0, handler_wrapper!(divide_by_zero_handler = 0))
+        .set_handler(3, handler_wrapper!(breakpoint_handler = 3))
+        .set_handler(6, handler_wrapper!(invalid_op_handler = 6))
+        .set_handler(8, err_code_handler_wrapper!(double_fault_handler = 8))
+        .set_handler(13, err_code_handler_wrapper!(gpf_handler = 13))
+        .set_handler(14, err_code_handler_wrapper!(page_fault_handler = 14))
         .set_handler(32, send_eoi_handler!(32, timer_handler))
         .set_handler(33, send_eoi_handler!(33, key_pressed_handler))
-        .set_handler(255, handler_wrapper!(cause_triple_fault))
 }
 
 /////////////////////////////////////////////////////////
 // Handlers
 /////////////////////////////////////////////////////////
 
-/// Equals `true` if the bit-th last bit in val is set
-macro_rules! bit_eq {
-    ($val: expr, $bit: expr, $true: expr, $false: expr) => {
-        if $val == $val | 0b0000_0001 << $bit - 1 {
-            $true
-        } else {
-            $false
-        }
-    };
-}
-
 #[unsafe(no_mangle)]
 extern "C" fn page_fault_handler(frame: StackFrame, code: u64) {
+    println!("EXCEPTION OCCURRED: Page fault");
+    vga::print_color("====== PAGE FAULT INFO ======\n", Color::Yellow);
     println!(
-        "EXCEPTION OCCURRED: Page fault\n====== PAGE FAULT INFO ======
-Caused by: {present}
+        "Caused by: {present}
 Access: {access}
 Causer: {causer}
 Reserved write: {rwrite}
@@ -142,13 +134,13 @@ Caused by instruction fetch: {fetch}
 Caused by protection key violation: {pkey}
 Caused by shadow stack access: {sstack}
 Virtual Address: {addr}\n{frame}",
-        present = bit_eq!(code, 1, "Page-protection Violation", "Non-present page"),
-        access = bit_eq!(code, 2, "Write", "Read"),
-        causer = bit_eq!(code, 3, "User program", "Privileged program"),
-        rwrite = bit_eq!(code, 4, "Yes", "No"),
-        fetch = bit_eq!(code, 5, "Yes", "No"),
-        pkey = bit_eq!(code, 6, "Yes", "No"),
-        sstack = bit_eq!(code, 7, "Yes", "No"),
+        present = crate::bit_eq!(code, 1, "Page-protection Violation", "Non-present page"),
+        access = crate::bit_eq!(code, 2, "Write", "Read"),
+        causer = crate::bit_eq!(code, 3, "User program", "Privileged program"),
+        rwrite = crate::bit_eq!(code, 4, "Yes", "No"),
+        fetch = crate::bit_eq!(code, 5, "Yes", "No"),
+        pkey = crate::bit_eq!(code, 6, "Yes", "No"),
+        sstack = crate::bit_eq!(code, 7, "Yes", "No"),
         addr = load_cr2(),
     );
 }
@@ -163,35 +155,9 @@ fn load_cr2() -> usize {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn double_fault_handler(frame: StackFrame, _code: u64) -> ! {
-    println!(
-        "EXCEPTION OCCURRED: Double Fault\n{frame}\nDouble faults cannot return, entering idle state"
-    );
-    crate::idle()
-}
-
-#[unsafe(no_mangle)]
-// todo: print error code
-extern "C" fn gpf_handler(frame: StackFrame, _code: u64) -> ! {
-    println!("EXCEPTION OCCURRED: General protection fault\n{frame}");
-    crate::idle()
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn cause_triple_fault(_frame: StackFrame) {
-    println!("Causing deliberate triple fault!");
-    speaker::play_duration(300, 9, false);
+extern "C" fn timer_handler() {
     unsafe {
-        core::ptr::write(IDT.as_mut_ptr(), Idt::new()); // nuke IDT
-        core::arch::asm!("ud2"); // cause double fault which escalates to a triple fault
-        core::hint::unreachable_unchecked()
-    }
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn timer_handler(_frame: StackFrame) {
-    unsafe {
-        crate::TIME += 1;
+        state::TIME += 1;
 
         if speaker::REPEATING {
             // Quickly disable to current sound
@@ -199,10 +165,4 @@ extern "C" fn timer_handler(_frame: StackFrame) {
             ports::writeb(ports::Port::Speaker, sound)
         }
     }
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn key_pressed_handler(_frame: StackFrame) {
-    let key = ports::readb(ports::Port::PS2Data);
-    keyboard::print_key(key);
 }
