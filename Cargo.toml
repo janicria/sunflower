@@ -1,14 +1,20 @@
 [package]
 name = "sunflower"
-version = "0.1.0"
+description = "A small kernel written in Rust"
+version = "0.0.0-SFK-00-Development-00"
 edition = "2024"
-
-[profile.dev]
-panic = "abort"
+license = "MIT"
+repository = "https://github.com/janicria/sunflower"
 
 [profile.release]
 panic = "abort"
 
 [dependencies]
 bootloader = "0.9"
-spin = "0.10.0"
+
+[features]
+disable_enter = [] # Disables the enter key from being pressed
+bootimage = [] # Flag set automatically by bootimage and runner, must be set to build
+
+[package.metadata.bootimage]
+build-command = ["build", "--release", "--features", "bootimage"]

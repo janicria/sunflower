@@ -1,122 +1,141 @@
-use crate::ports::{self, Port};
+use crate::{
+    ports::{self, Port},
+    time,
+};
 
-/// Whether or not the speaker is repeatedly playing a sound.
-/// This is different to if the speaker is holding a sound.
-pub static mut REPEATING: bool = false;
+/// The bits required for the PC speaker to play sound through PIT channel 2.
+static PLAY_BITS: u8 = 3;
 
-/// Plays a sound with frequency `freq` using the pc speaker.
-/// Plays the sound continuously if `hold` is set, otherwise repeats between on and off if not.
+/// Plays a sound with the specified frequency to the pc speaker.
 ///
-/// Note: QEMU requires extra support to emulate playing sounds through the pc speaker,
-/// and may not be able to produce repeating frequencies when used with certain headphones
-pub fn play(freq: u32, hold: bool) {
+/// Note: QEMU doesn't seem to be able to rapidly switch between playing different sounds
+/// when used with certain headphones and requires passing
+/// `-audio driver=<insert driver here>,model=virtio,id=speaker --machine pcspk-audiodev=speaker`
+pub fn play(freq: u32) {
     unsafe {
-        // Set the second channel in the PIT to freq
-        let freq = 1193180 / freq;
-        ports::writeb(Port::PITCmd, 0b10110110);
-        ports::writeb(Port::PITChannel2, freq as u8);
-        ports::writeb(Port::PITChannel2, (freq >> 8) as u8);
-        REPEATING = !hold;
+        static COMMAND: u8 = 0b10110110;
 
-        // If the sound is low make it high
-        let sound = ports::readb(Port::Speaker);
-        if sound != sound | 3 {
-            ports::writeb(Port::Speaker, sound | 3);
+        // Set the second channel in the PIT to freq
+        let freq = time::PIT_BASE_FREQ as u32 / freq;
+        ports::writeb(Port::PITCmd, COMMAND);
+        ports::writeb(Port::PITChannel2, freq as u8); // low byte
+        ports::writeb(Port::PITChannel2, (freq >> 8) as u8); // high byte
+
+        // If the play bits are not set, enable them
+        let val = ports::readb(Port::Speaker);
+        if val != val | PLAY_BITS {
+            ports::writeb(Port::Speaker, val | PLAY_BITS);
         }
     }
-}
-
-/// Holds `freq` for `time` ticks then stops.
-pub fn hold_duration(freq: u32, time: u64) {
-    play(freq, true);
-    crate::wait(time);
-    stop();
-}
-
-/// Repeats `freq` for `time` ticks then stops.
-pub fn repeat_duration(freq: u32, time: u64) {
-    play(freq, false);
-    crate::wait(time);
-    stop();
-}
-
-/// Plays the boot chime
-pub fn play_chime() {
-    hold_duration(600, 7);
-    hold_duration(620, 9);
-
-    hold_duration(600, 7);
-    hold_duration(780, 20);
-}
-
-pub fn play_song() {
-    // Set 1 - Rising
-    hold_duration(400, 6);
-    hold_duration(430, 6);
-    hold_duration(450, 6);
-    hold_duration(500, 5);
-    hold_duration(550, 5);
-
-    // Set 2 - Beeping 1
-    hold_duration(450, 2);
-    hold_duration(400, 3);
-    hold_duration(500, 5);
-    hold_duration(550, 5);
-
-    // Set 3 - Beeping 2
-    hold_duration(600, 2);
-    hold_duration(620, 2);
-    hold_duration(600, 2);
-    hold_duration(620, 2);
-    hold_duration(600, 2);
-    hold_duration(620, 2);
-    hold_duration(500, 2);
-    hold_duration(480, 2);
-
-    // Set 2 - Beeping 1
-    hold_duration(450, 2);
-    hold_duration(400, 3);
-    hold_duration(500, 5);
-    hold_duration(550, 5);
-
-    // Set 1 - Rising
-    hold_duration(400, 6);
-    hold_duration(430, 6);
-    hold_duration(450, 6);
-    hold_duration(500, 5);
-    hold_duration(550, 5);
-
-    // Set 2 - Beeping 1
-    hold_duration(450, 2);
-    hold_duration(400, 3);
-    hold_duration(500, 5);
-    hold_duration(550, 5);
-
-    // Set 4 - Uh oh
-    repeat_duration(600, 14);
-    hold_duration(500, 16);
-    repeat_duration(600, 14);
-
-    // Set 5 - Fade out
-    hold_duration(550, 2);
-    hold_duration(540, 2);
-    hold_duration(530, 2);
-    hold_duration(520, 2);
-    hold_duration(510, 2);
-    hold_duration(500, 2);
-    hold_duration(490, 2);
-    hold_duration(480, 2);
-    hold_duration(470, 2);
-    hold_duration(460, 2);
-    hold_duration(450, 30);
 }
 
 /// Stops the current sound the pc speaker is playing.
 pub fn stop() {
     unsafe {
-        // Make the sound low
-        let sound = ports::readb(Port::Speaker) & 0b11111100;
-        ports::writeb(Port::Speaker, sound);
-        REPEATING = false;
+        // Disable the play bits
+        let val = ports::readb(Port::Speaker) & !PLAY_BITS;
+        ports::writeb(Port::Speaker, val);
     }
+}
+
+/// Plays `freq` for `time` milliseconds.
+///
+/// Repeatedly plays then stops playing at 100ms intervals if `repeat` is set.
+///
+/// Works without external interrupts, yet is slightly inaccurate if `no_ints` is set.
+pub fn play_special(freq: u32, millis: u64, repeat: bool, no_ints: bool) {
+    let (wait, ticks) = if no_ints {
+        // Convert millis to double the usual ticks due to
+        // wait_no_int playing much faster at shorter times.
+        (time::wait_no_ints as fn(u64), millis / 5)
+    } else {
+        // Convert millis to ticks.
+        (time::wait as fn(u64), millis / 10)
+    };
+
+    if repeat {
+        static PULSE_LENGTH: u64 = 10;
+        for _ in 0..ticks / (PULSE_LENGTH * 2) {
+            play(freq);
+            wait(PULSE_LENGTH);
+            stop();
+            wait(PULSE_LENGTH);
+        }
+    } else {
+        play(freq);
+        wait(ticks);
+        stop();
+    }
+}
+
+/// Plays the boot chime.
+pub fn play_chime() {
+    play_special(600, 350, false, false);
+    play_special(620, 450, false, false);
+
+    play_special(600, 350, false, false);
+    play_special(780, 900, false, false);
+}
+
+/// Plays when an rbod has occurred and everything is wrong in the world.
+pub fn play_song() {
+    // Set 1 - Rising
+    play_special(400, 300, false, true);
+    play_special(430, 300, false, true);
+    play_special(450, 300, false, true);
+    play_special(500, 250, false, true);
+    play_special(550, 250, false, true);
+
+    // Set 2 - Beeping 1
+    play_special(450, 100, false, true);
+    play_special(400, 150, false, true);
+    play_special(500, 250, false, true);
+    play_special(550, 250, false, true);
+
+    // Set 3 - Beeping 2
+    play_special(600, 100, false, true);
+    play_special(620, 100, false, true);
+    play_special(600, 100, false, true);
+    play_special(620, 100, false, true);
+    play_special(600, 100, false, true);
+    play_special(620, 100, false, true);
+    play_special(500, 100, false, true);
+    play_special(480, 100, false, true);
+
+    // Set 2 - Beeping 1
+    play_special(450, 100, false, true);
+    play_special(400, 150, false, true);
+    play_special(500, 250, false, true);
+    play_special(550, 250, false, true);
+
+    // Set 1 - Rising
+    play_special(400, 300, false, true);
+    play_special(430, 300, false, true);
+    play_special(450, 300, false, true);
+    play_special(500, 250, false, true);
+    play_special(550, 250, false, true);
+
+    // Set 2 - Beeping 1
+    play_special(450, 100, false, true);
+    play_special(400, 150, false, true);
+    play_special(500, 250, false, true);
+    play_special(550, 250, false, true);
+
+    // Set 4 - Uh oh
+    play_special(600, 900, true, true);
+    play_special(500, 800, false, true);
+    play_special(600, 900, true, true);
+
+    // Set 5 - Fade out
+    play_special(550, 100, false, true);
+    play_special(540, 100, false, true);
+    play_special(530, 100, false, true);
+    play_special(520, 100, false, true);
+    play_special(510, 100, false, true);
+    play_special(500, 100, false, true);
+    play_special(490, 100, false, true);
+    play_special(480, 100, false, true);
+    play_special(470, 100, false, true);
+    play_special(460, 100, false, true);
+    play_special(450, 1350, false, true);
 }

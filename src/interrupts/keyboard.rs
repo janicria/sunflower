@@ -1,16 +1,19 @@
-use core::mem;
-use spin::Mutex;
-
 use crate::{
-    interrupts,
     ports::{self, Port},
-    state,
-    vga::{self, Color, CursorShift},
+    vga::{self, CursorShift},
+};
+use core::{
+    mem,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
-#[allow(unused)]
+/// The current state of the keyboard.
+static KEYBOARD: KeyboardState = KeyboardState::new();
+
+#[derive(Clone, PartialEq)]
 #[repr(u8)]
-enum Key {
+#[allow(unused)]
+pub enum Key {
     Escape = 0x01,
     One,
     Two,
@@ -87,137 +90,129 @@ enum Key {
     Unknown,
 }
 
-static KEYBOARD: Mutex<KeyboardState> =
-    Mutex::new(unsafe { mem::transmute::<u32, KeyboardState>(0) });
-
+/// The action keys held or pressed on the keyboard.
 #[derive(Default)]
 struct KeyboardState {
-    ctrl: bool,
-    shift: bool,
-    alt: bool,
-    caps: bool,
-    //_super: bool,
+    ctrl: AtomicBool,
+    shift: AtomicBool,
+    alt: AtomicBool,
+    caps: AtomicBool,
 }
 
 impl KeyboardState {
-    fn toggle_caps(&mut self) {
-        self.caps = !self.caps
+    /// Creates a new `KeyboardState`.
+    const fn new() -> Self {
+        KeyboardState {
+            ctrl: AtomicBool::new(false),
+            shift: AtomicBool::new(false),
+            alt: AtomicBool::new(false),
+            caps: AtomicBool::new(false),
+        }
     }
-}
 
-macro_rules! key_as_char {
-    ($normal: expr, $shift: expr, $is_shift: expr) => {
-        Ok(if $is_shift { $shift } else { $normal })
-    };
+    /// Toggles the `caps` bool.
+    fn flip_caps(&self) {
+        self.caps.fetch_xor(true, Ordering::Relaxed);
+    }
 }
 
 impl TryFrom<Key> for char {
     type Error = ();
     fn try_from(key: Key) -> Result<Self, Self::Error> {
-        let lock = KEYBOARD.lock();
-        let shift = lock.shift;
-        let caps = lock.caps;
-        match key {
-            Key::One => key_as_char!('1', '!', shift),
-            Key::Two => key_as_char!('2', '@', shift),
-            Key::Three => key_as_char!('3', '#', shift),
-            Key::Four => key_as_char!('4', '$', shift),
-            Key::Five => key_as_char!('5', '%', shift),
-            Key::Six => key_as_char!('6', '^', shift),
-            Key::Seven => key_as_char!('7', '&', shift),
-            Key::Eight => key_as_char!('8', '*', shift),
-            Key::Nine => key_as_char!('9', '(', shift),
-            Key::Zero => key_as_char!('0', ')', shift),
+        let shift = KEYBOARD.shift.load(Ordering::Relaxed);
+        let caps = KEYBOARD.caps.load(Ordering::Relaxed);
+        return match key {
+            Key::One => default_or_shift('1', '!', shift),
+            Key::Two => default_or_shift('2', '@', shift),
+            Key::Three => default_or_shift('3', '#', shift),
+            Key::Four => default_or_shift('4', '$', shift),
+            Key::Five => default_or_shift('5', '%', shift),
+            Key::Six => default_or_shift('6', '^', shift),
+            Key::Seven => default_or_shift('7', '&', shift),
+            Key::Eight => default_or_shift('8', '*', shift),
+            Key::Nine => default_or_shift('9', '(', shift),
+            Key::Zero => default_or_shift('0', ')', shift),
 
-            Key::Minus => key_as_char!('-', '_', shift),
-            Key::Equals => key_as_char!('=', '+', shift),
-            Key::BracketLeft => key_as_char!('[', '{', shift),
-            Key::BracketRight => key_as_char!(']', '}', shift),
+            Key::Minus => default_or_shift('-', '_', shift),
+            Key::Equals => default_or_shift('=', '+', shift),
+            Key::BracketLeft => default_or_shift('[', '{', shift),
+            Key::BracketRight => default_or_shift(']', '}', shift),
             Key::Enter => Ok('\n'),
             Key::Space => Ok(' '),
-            Key::Comma => key_as_char!(',', '<', shift),
-            Key::Fullstop => key_as_char!('.', '>', shift),
-            Key::Home => key_as_char!('`', '~', shift),
-            Key::SemiColon => key_as_char!(';', ':', shift),
-            Key::Quote => key_as_char!('\'', '\"', shift),
-            Key::Backslash => key_as_char!('\\', '|', shift),
-            Key::ForwardSlash => key_as_char!('/', '?', shift),
+            Key::Comma => default_or_shift(',', '<', shift),
+            Key::Fullstop => default_or_shift('.', '>', shift),
+            Key::Home => default_or_shift('`', '~', shift),
+            Key::SemiColon => default_or_shift(';', ':', shift),
+            Key::Quote => default_or_shift('\'', '\"', shift),
+            Key::Backslash => default_or_shift('\\', '|', shift),
+            Key::ForwardSlash => default_or_shift('/', '?', shift),
 
-            Key::Q => key_as_char!('q', 'Q', shift || caps),
-            Key::W => key_as_char!('w', 'W', shift || caps),
-            Key::E => key_as_char!('e', 'E', shift || caps),
-            Key::R => key_as_char!('r', 'R', shift || caps),
-            Key::T => key_as_char!('t', 'T', shift || caps),
-            Key::Y => key_as_char!('y', 'Y', shift || caps),
-            Key::U => key_as_char!('u', 'U', shift || caps),
-            Key::I => key_as_char!('i', 'I', shift || caps),
-            Key::O => key_as_char!('o', 'O', shift || caps),
-            Key::P => key_as_char!('p', 'P', shift || caps),
-            Key::A => key_as_char!('a', 'A', shift || caps),
-            Key::S => key_as_char!('s', 'S', shift || caps),
-            Key::D => key_as_char!('d', 'D', shift || caps),
-            Key::F => key_as_char!('f', 'F', shift || caps),
-            Key::G => key_as_char!('g', 'G', shift || caps),
-            Key::H => key_as_char!('h', 'H', shift || caps),
-            Key::J => key_as_char!('j', 'J', shift || caps),
-            Key::K => key_as_char!('k', 'K', shift || caps),
-            Key::L => key_as_char!('l', 'L', shift || caps),
-            Key::Z => key_as_char!('z', 'Z', shift || caps),
-            Key::X => key_as_char!('x', 'X', shift || caps),
-            Key::C => key_as_char!('c', 'C', shift || caps),
-            Key::V => key_as_char!('v', 'V', shift || caps),
-            Key::B => key_as_char!('b', 'B', shift || caps),
-            Key::N => key_as_char!('n', 'N', shift || caps),
-            Key::M => key_as_char!('m', 'M', shift || caps),
+            Key::Q => default_or_shift('q', 'Q', shift || caps),
+            Key::W => default_or_shift('w', 'W', shift || caps),
+            Key::E => default_or_shift('e', 'E', shift || caps),
+            Key::R => default_or_shift('r', 'R', shift || caps),
+            Key::T => default_or_shift('t', 'T', shift || caps),
+            Key::Y => default_or_shift('y', 'Y', shift || caps),
+            Key::U => default_or_shift('u', 'U', shift || caps),
+            Key::I => default_or_shift('i', 'I', shift || caps),
+            Key::O => default_or_shift('o', 'O', shift || caps),
+            Key::P => default_or_shift('p', 'P', shift || caps),
+            Key::A => default_or_shift('a', 'A', shift || caps),
+            Key::S => default_or_shift('s', 'S', shift || caps),
+            Key::D => default_or_shift('d', 'D', shift || caps),
+            Key::F => default_or_shift('f', 'F', shift || caps),
+            Key::G => default_or_shift('g', 'G', shift || caps),
+            Key::H => default_or_shift('h', 'H', shift || caps),
+            Key::J => default_or_shift('j', 'J', shift || caps),
+            Key::K => default_or_shift('k', 'K', shift || caps),
+            Key::L => default_or_shift('l', 'L', shift || caps),
+            Key::Z => default_or_shift('z', 'Z', shift || caps),
+            Key::X => default_or_shift('x', 'X', shift || caps),
+            Key::C => default_or_shift('c', 'C', shift || caps),
+            Key::V => default_or_shift('v', 'V', shift || caps),
+            Key::B => default_or_shift('b', 'B', shift || caps),
+            Key::N => default_or_shift('n', 'N', shift || caps),
+            Key::M => default_or_shift('m', 'M', shift || caps),
 
             _ => Err(()),
+        };
+
+        fn default_or_shift(default: char, shift: char, is_shift: bool) -> Result<char, ()> {
+            Ok(if is_shift { shift } else { default })
         }
     }
 }
 
-/// Prints the scancode in scancode set 1. Assumes US keyboard layout
+/// Prints the scancode in set 1. Assumes US keyboard layout.
+// Reference: https://wiki.osdev.org/PS/2_Keyboard#Scan_Code_Set_1
 #[unsafe(no_mangle)]
 extern "C" fn key_pressed_handler() {
-    unsafe {
-        let scancode = ports::readb(Port::PS2Data);
-        let key = mem::transmute::<u8, Key>(scancode);
+    let scancode = unsafe { ports::readb(Port::PS2Data) };
+    let key = unsafe { mem::transmute_copy::<u8, Key>(&scancode) };
 
-        // Everything has gone wrong equals true
-        if state::FLAGS == state::FLAGS | 0b0000_1000 {
-            return match key {
-                Key::One => interrupts::triple_fault(),
-                Key::Two => {
-                    state::FLAGS |= 0b0001_0000; // return from ehgw = true
-                    vga::print_color("Continuing execution...\n", Color::LightRed)
-                }
-                Key::Three => {
-                    state::FLAGS &= 0b1111_0111; // ehgw = false,
-                    vga::print_color(
-                        "Entered idle mode, this system is now forever trapped idling <3",
-                        Color::Green,
-                    );
-                    vga::WRITER.shift_cursor(CursorShift::Left);
-                }
-                _ => (),
-            };
-        }
-
-        match char::try_from(key) {
-            Ok(c) => print!("{c}"),
-            Err(_) => match scancode {
-                0x2A | 0x36 => KEYBOARD.lock().shift = true, // shift pressed
-                0xAA | 0xB6 => KEYBOARD.lock().shift = false, // shift released
-                0x3A => KEYBOARD.lock().toggle_caps(),       // caps pressed
-                0x1D => KEYBOARD.lock().ctrl = true,         // left ctrl released
-                0x38 => KEYBOARD.lock().alt = true,          // left alt pressed
-                0xB8 => KEYBOARD.lock().alt = false,         // left alt released
-                0x48 => vga::WRITER.shift_cursor(CursorShift::Up), // arrow keys up
-                0x4B => vga::WRITER.shift_cursor(CursorShift::Left), // arrow keys left
-                0x4D => vga::WRITER.shift_cursor(CursorShift::Right), // arrow keys right
-                0x50 => vga::WRITER.shift_cursor(CursorShift::Down), // arrow keys down
-                0x0E => vga::WRITER.delete_previous(),       // backspace pressed
-                _ => (),
-            },
-        }
+    // My keyboard’s enter key is permanently stuck down…
+    if cfg!(feature = "disable_enter") && key == Key::Enter {
+        return;
     }
+
+    match char::try_from(key) {
+        Ok(c) => print!("{c}"),
+        Err(_) => match scancode {
+            0x2A | 0x36 => KEYBOARD.shift.store(true, Ordering::Relaxed), // shift pressed
+            0xAA | 0xB6 => KEYBOARD.shift.store(false, Ordering::Relaxed), // shift released
+            0x3A => KEYBOARD.flip_caps(),                                 // caps pressed
+            0x1D => KEYBOARD.ctrl.store(true, Ordering::Relaxed),         // left ctrl released
+            0x9D => KEYBOARD.ctrl.store(false, Ordering::Relaxed),        // left ctrl released
+            0x38 => KEYBOARD.alt.store(true, Ordering::Relaxed),          // left alt pressed
+            0xB8 => KEYBOARD.shift.store(false, Ordering::Relaxed),       // left alt released
+            0x48 => vga::shift_cursor(CursorShift::Up),                   // arrow keys up
+            0x4B => vga::shift_cursor(CursorShift::Left),                 // arrow keys left
+            0x4D => vga::shift_cursor(CursorShift::Right),                // arrow keys right
+            0x50 => vga::shift_cursor(CursorShift::Down),                 // arrow keys down
+            0x0E => vga::delete_prev_char(),                              // backspace pressed
+            _ => (),
+        },
+    };
+
+    vga::update_vga_cursor();
 }

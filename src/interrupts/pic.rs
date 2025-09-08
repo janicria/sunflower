@@ -2,12 +2,12 @@ use crate::{
     ports::{Port, writeb},
     vga,
 };
-use core::mem;
+use core::arch::asm;
 
-/// Sends the EOI command.
+/// Sends the EOI command to the PIC.
 #[unsafe(no_mangle)]
 pub extern "C" fn eoi(irq: u8) {
-    const EOI_CMD: u8 = 0x20;
+    static EOI_CMD: u8 = 0x20;
     unsafe {
         if irq >= 8 {
             writeb(Port::SecondaryPicCmd, EOI_CMD);
@@ -17,14 +17,14 @@ pub extern "C" fn eoi(irq: u8) {
 }
 
 /// Initialises both the PIC and enables external interrupts.
-pub(super) fn init() {
-    const MAIN_OFFSET: u8 = 32;
-    const SECONDARY_OFFSET: u8 = 40;
-    const INIT_CMD: u8 = 0x10 | 0x01;
-    const MODE_8086: u8 = 0x01;
+pub fn init() {
+    static MAIN_OFFSET: u8 = 32;
+    static SECONDARY_OFFSET: u8 = 40;
+    static INIT_CMD: u8 = 0x10 | 0x01;
+    static MODE_8086: u8 = 0x01;
 
     unsafe {
-        // Initalise ports
+        // Initialise ports
         writeb(Port::MainPicCmd, INIT_CMD);
         wait();
         writeb(Port::SecondaryPicCmd, INIT_CMD);
@@ -53,8 +53,7 @@ pub(super) fn init() {
         writeb(Port::MainPicData, 0);
         writeb(Port::SecondaryPicData, 0);
 
-        // Enable external interrupts
-        core::arch::asm!("sti");
+        asm!("sti");
         vga::print_done("Initialised PIC");
     };
 }
@@ -62,7 +61,6 @@ pub(super) fn init() {
 /// Waits a few microseconds by writing garbage data to port `0x80`.
 fn wait() {
     unsafe {
-        let unused_port = mem::transmute::<u16, Port>(0x80);
-        writeb(unused_port, 0);
+        writeb(Port::Unused, 0);
     }
 }

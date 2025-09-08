@@ -1,3 +1,5 @@
+use core::arch::asm;
+
 /// An I/O port required to written to or read from.
 #[repr(u16)]
 pub enum Port {
@@ -6,22 +8,23 @@ pub enum Port {
     SecondaryPicCmd = 0x00A0,
     SecondaryPicData = 0x00A1,
     PS2Data = 0x60,
-    // PS2Status = 0x64,
     VGAIndexRegister0x3D4 = 0x3D4,
     VgaCursorPos = 0x3D5,
     Speaker = 0x61,
-    PITCmd = 0x43,
+    PITChannel0 = 0x40,
     PITChannel2 = 0x42,
+    PITCmd = 0x43,
+    Unused = 0x80, // apparently rust doesn't like invalid enums anymore
 }
 
 /// Writes `val` to port `port`.
 pub unsafe fn writeb(port: Port, val: u8) {
-    unsafe { core::arch::asm!("out dx, al", in("dx") port as u16, in("al") val, ) }
+    unsafe { asm!("out dx, al", in("dx") port as u16, in("al") val, ) }
 }
 
 /// Returns the value in port `port`.
-pub fn readb(port: Port) -> u8 {
+pub unsafe fn readb(port: Port) -> u8 {
     let val;
-    unsafe { core::arch::asm!("in al, dx", out("al") val, in("dx") port as u16) }
+    unsafe { asm!("in al, dx", out("al") val, in("dx") port as u16) }
     val
 }
