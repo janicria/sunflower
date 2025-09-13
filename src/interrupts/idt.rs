@@ -6,6 +6,7 @@ use crate::vga::{self, Color};
 use core::{
     arch::{asm, naked_asm},
     mem,
+    sync::atomic::Ordering,
 };
 
 type Handler = u64;
@@ -25,7 +26,7 @@ pub struct IDTDescriptor {
     offset: *const Idt,
 }
 
-/// Pushes all registers with need to be saved before called C ABI functions.
+/// Pushes all registers which need to be saved before calling C ABI functions.
 macro_rules! pushregs {
     () => {
         "push rdi
@@ -40,7 +41,7 @@ macro_rules! pushregs {
     };
 }
 
-/// Pops all registers with need to be saved before called C ABI functions.
+/// Pops all registers which need to be saved before calling C ABI functions.
 macro_rules! popregs {
     () => {
         "pop r11
@@ -80,13 +81,13 @@ macro_rules! cont_wrapper {
 /// Continues execution after an error occurs.
 #[unsafe(no_mangle)]
 fn cont(frame: IntStackFrame) {
-    unsafe { rbod::SMALL_ERRS += 1 };
+    rbod::SMALL_ERRS.fetch_add(1, Ordering::Relaxed);
     vga::print_color("An unexpected error occurred: ", Color::LightRed);
     let err = unsafe { ERR_CODE };
     println!("{err:?} at {:x}", frame.ip);
 }
 
-/// Calls rbod,, never returns.
+/// Calls rbod, never returns.
 macro_rules! rbod_wrapper {
     ($err: expr) => {{
         #[unsafe(naked)]
@@ -106,7 +107,7 @@ macro_rules! rbod_wrapper {
 impl Idt {
     /// Creates a new, loaded table, with all it's required entries set.
     /// This function only creates an IDT, and doesn't load it.
-    #[allow(clippy::fn_to_numeric_cast)]
+    #[allow(clippy::fn_to_numeric_cast, clippy::identity_op)]
     pub fn new() -> Self {
         /// Where IRQ vectors start in the table.
         static IRQ_START: usize = 32;
@@ -127,6 +128,7 @@ impl Idt {
         idt.set_handler(IRQ_START + 0, timer_handler as Handler);
         idt.set_handler(IRQ_START + 1, key_pressed_wrapper as Handler);
         idt.set_handler(IRQ_START + 7, dummy_handler as Handler);
+        idt.set_handler(IRQ_START + 8, rtc_handler as Handler);
         idt.set_handler(IRQ_START + 15, dummy_handler as Handler);
 
         idt
@@ -144,6 +146,8 @@ impl Idt {
 
     /// Loads the table into the `IDTR` register.
     /// Returns the created `IDTDescriptor`.
+    /// # Safety
+    /// Very bad things will happen if `self` isn't properly filed out.
     pub unsafe fn load(&self) -> IDTDescriptor {
         let descriptor = IDTDescriptor {
             size: (size_of::<Idt>() - 1) as u16,
@@ -198,14 +202,12 @@ fn bit_set(code: u64, bit: u64, set: &'static str, clear: &'static str) -> &'sta
 }
 
 /// Ran when a page fault occurs.
-unsafe extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64) {
-    unsafe {
-        super::rbod::rbod(
-            ErrorCode::PageFault,
-            RbodErrInfo::Exception(frame),
-            ErrCodeHandler::new(handler, err_code),
-        )
-    }
+extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64) {
+    super::rbod::rbod(
+        ErrorCode::PageFault,
+        RbodErrInfo::Exception(frame),
+        ErrCodeHandler::new(handler, err_code),
+    );
 
     fn handler(err_code: u64) {
         let present = bit_set(err_code, 0, "Page-protection Violation", "Non-present page");
@@ -225,14 +227,12 @@ unsafe extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_co
 }
 
 /// Ran when a general protection fault occurs.
-unsafe extern "x86-interrupt" fn gpf_handler(frame: IntStackFrame, err_code: u64) {
-    unsafe {
-        super::rbod::rbod(
-            ErrorCode::GeneralProtectionFault,
-            RbodErrInfo::Exception(frame),
-            ErrCodeHandler::new(handler, err_code),
-        )
-    };
+extern "x86-interrupt" fn gpf_handler(frame: IntStackFrame, err_code: u64) {
+    super::rbod::rbod(
+        ErrorCode::GeneralProtectionFault,
+        RbodErrInfo::Exception(frame),
+        ErrCodeHandler::new(handler, err_code),
+    );
 
     fn handler(err_code: u64) {
         if err_code == 0 {
@@ -258,10 +258,11 @@ unsafe extern "x86-interrupt" fn gpf_handler(frame: IntStackFrame, err_code: u64
 }
 
 /// Ran when a double fault occurs.
-unsafe extern "x86-interrupt" fn double_fault_handler(frame: IntStackFrame, _err_code: u64) {
-    unsafe { super::rbod::rbod(ErrorCode::DoubleFault, RbodErrInfo::Exception(frame), None) }
+extern "x86-interrupt" fn double_fault_handler(frame: IntStackFrame, _err_code: u64) {
+    super::rbod::rbod(ErrorCode::DoubleFault, RbodErrInfo::Exception(frame), None)
 }
 
+/// Ran when the PIT generates an interrupt.
 #[unsafe(naked)]
 extern "C" fn timer_handler() -> ! {
     naked_asm!(
@@ -274,6 +275,7 @@ extern "C" fn timer_handler() -> ! {
     );
 }
 
+/// Ran when the PS/2 keyboard generates an interrupt.
 #[unsafe(naked)]
 extern "C" fn key_pressed_wrapper() -> ! {
     naked_asm!(
@@ -284,4 +286,55 @@ extern "C" fn key_pressed_wrapper() -> ! {
         popregs!(),
         "iretq",
     );
+}
+
+/// Flag set by the RTC handler when the RTC finishes updating.
+#[unsafe(no_mangle)]
+static mut RTC_UPDATE_ENDED: u8 = 0;
+
+/// Ran when the RTC generates an interrupt
+#[unsafe(naked)]
+extern "C" fn rtc_handler() -> ! {
+    naked_asm!(
+        "push dx", // backup regs
+        "push ax",
+        pushregs!(),
+        "cmp byte ptr [RTC_UPDATE_ENDED], 1", // check if the update ended int has been sent
+        "je rtc_ret",                         // if so, cancel all future interrupts
+        "mov dx, 0x70",                       // cmos register selector
+        "mov al, 0x8C",                       // select register C
+        "out dx, al",                         // store register C as the next reg
+        "mov dx, 0x71",                       // select select register C
+        "in al, dx",                          // load register C into al
+        "mov ah, al",                         // copy register C into ah
+        "or ah, 16",                          // set bit 4
+        "cmp al, ah",                         // if they're the same, bit 4 is set
+        "je update_ended",                    // if so, set the RTC_UPDATE_ENDED flag
+        "jmp rtc_ret"                         // if not return from the interrupt
+    );
+}
+
+/// Ran when the RTC sends an update ended interrupt.
+#[unsafe(naked)]
+#[unsafe(no_mangle)]
+extern "C" fn update_ended() {
+    naked_asm!(
+        "mov byte ptr [RTC_UPDATE_ENDED], 1", // set update ended flag to disable future interrupts
+        "call sync_time_to_rtc",              // in time.rs
+        "jmp rtc_ret"                         // return from interrupt
+    )
+}
+
+/// Returns from the RTC handler.
+#[unsafe(naked)]
+#[unsafe(no_mangle)]
+extern "C" fn rtc_ret() {
+    naked_asm!(
+        "mov rdi, 40", // RTC eoi
+        "call eoi",    // send eoi cmd
+        popregs!(),    // restore regs
+        "pop ax",
+        "pop dx",
+        "iretq" // return from int
+    )
 }

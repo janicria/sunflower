@@ -1,11 +1,13 @@
 use crate::{
+    interrupts::rbod::{ErrorCode, RbodErrInfo},
     ports::{self, Port},
-    startup,
+    speaker, startup,
+    sysinfo::SystemInfo,
     vga::{self, CursorShift},
 };
 use core::{
     fmt::Display,
-    sync::atomic::{AtomicU8, Ordering},
+    sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 use pc_keyboard::{
     DecodedKey, HandleControl, KeyCode, KeyState, Keyboard, Modifiers, ScancodeSet2,
@@ -34,7 +36,10 @@ static KBD_WPTR: AtomicU8 = AtomicU8::new(0);
 /// - Bit 1 - Right shift
 static SHIFT: AtomicU8 = AtomicU8::new(0);
 
-/// Enables external interrupts, disables mouse, runs some tests, 
+/// Whether SYSRQ is being held or not.
+static SYSRQ: AtomicBool = AtomicBool::new(false);
+
+/// Enables external interrupts, disables mouse, runs some tests,
 /// sets config, then sets the scancode and numlock LEDs.
 pub fn init() -> Result<(), KbdInitError> {
     super::sti();
@@ -127,7 +132,6 @@ unsafe fn kbd_handler() {
 }
 
 /// Polls the keyboard buffer for any new keys pressed.
-#[allow(clippy::deref_addrof)]
 pub fn poll_keyboard() {
     /// The current state of the keyboard
     static mut KBD: Keyboard<Us104Key, ScancodeSet2> =
@@ -136,6 +140,10 @@ pub fn poll_keyboard() {
     // Left and right shift scancodes in set 2.
     static LSHIFT_SCANCODE: u8 = 0x12;
     static RSHIFT_SCANCODE: u8 = 0x59;
+
+    // Sys request scancodes in set 2.
+    static SYSRQ_SCANCODE: u8 = 0x7F;
+    static SYSRQ_SCANCODE_ALT: u8 = 0x7C;
 
     let read_ptr = KBD_RPTR.load(Ordering::Relaxed);
     let write_ptr = KBD_WPTR.load(Ordering::Relaxed);
@@ -152,37 +160,56 @@ pub fn poll_keyboard() {
     let scancode = KBD_BUF[read_ptr as usize].load(Ordering::Relaxed);
     KBD_RPTR.fetch_add(1, Ordering::Relaxed);
 
-    // Handle shift
+    // Handle shift and sys request
     if scancode == LSHIFT_SCANCODE {
         // Flip lshift bit
         SHIFT.fetch_xor(1 << 0, Ordering::Relaxed);
     } else if scancode == RSHIFT_SCANCODE {
         // Flip rshift bit
         SHIFT.fetch_xor(1 << 1, Ordering::Relaxed);
+    } else if scancode == SYSRQ_SCANCODE || scancode == SYSRQ_SCANCODE_ALT {
+        // Flip sysrq bit
+        SYSRQ.fetch_xor(true, Ordering::Relaxed);
     }
 
     // If a key was pressed
     if let Ok(event) = kbd.add_byte(scancode)
-        && let Some(event) = event
+        && let Some(ref event) = event
         && event.state == KeyState::Down
-        && let Some(key) = kbd.process_keyevent(event)
+        && let Some(key) = kbd.process_keyevent(event.clone())
     {
+        let mods = kbd.get_modifiers();
+        system_command(event.code, mods);
+
         match key {
-            DecodedKey::RawKey(key) => handle_special_key(key),
-            DecodedKey::Unicode(key) => print_key(key, kbd.get_modifiers()),
+            DecodedKey::RawKey(key) => handle_arrows(key),
+            DecodedKey::Unicode(key) => print_key(key, mods),
         }
     }
 }
 
-/// Handles when a "special" non-printable key is pressed.
-fn handle_special_key(key: KeyCode) {
+/// Checks if any system commands were run and runs the corresponding action if so.
+fn system_command(key: KeyCode, kbd: &Modifiers) {
+    // If Ctrl + Alt or SysRq is held
+    if (kbd.is_ctrl() && kbd.is_alt()) || SYSRQ.load(Ordering::Relaxed) {
+        match key {
+            KeyCode::F1 => print!("{}", SystemInfo::now()),
+            KeyCode::F2 => vga::clear(),
+            KeyCode::F3 => speaker::play_special(600, 400, false, false),
+            KeyCode::F4 => super::rbod::rbod(ErrorCode::SysCmd4, RbodErrInfo::None, None),
+            KeyCode::F5 => super::triple_fault(),
+            _ => (),
+        }
+    }
+}
+
+/// Handles when an arrow key is pressed.
+fn handle_arrows(key: KeyCode) {
     match key {
-        KeyCode::Return | KeyCode::NumpadEnter => print!("\n"),
         KeyCode::ArrowLeft => vga::shift_cursor(CursorShift::Left),
         KeyCode::ArrowRight => vga::shift_cursor(CursorShift::Right),
         KeyCode::ArrowUp => vga::shift_cursor(CursorShift::Up),
         KeyCode::ArrowDown => vga::shift_cursor(CursorShift::Down),
-        KeyCode::Delete | KeyCode::Backspace => vga::delete_prev_char(),
         _ => (),
     }
 }
@@ -220,7 +247,12 @@ fn print_key(mut key: char, kbd: &Modifiers) {
     } else if key == '\u{9}' || key == '\u{1B}' {
         return;
     }
-    
+
+    // Disable enter feature
+    if key == '\n' && cfg!(feature = "disable_enter") {
+        return;
+    }
+
     // Convert the key to it's non-shift form, to counter pc-keyboard's broken shift translation
     let shifted = if let Some(shift) = SHIFT_KEYS.iter().find(|s| s.0 == key || s.1 == key) {
         key = shift.0;

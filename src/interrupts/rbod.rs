@@ -1,24 +1,25 @@
 use crate::{
     interrupts::{IntStackFrame, idt::ERR_CODE},
     ports::{self, Port},
-    speaker, time,
+    speaker,
+    sysinfo::SystemInfo,
+    time,
     vga::{
         self, BUFFER, BUFFER_HEIGHT, BUFFER_WIDTH, Color, Corner, RawBuffer, VGAChar, YoinkedBuffer,
     },
 };
 use core::{
-    arch::asm,
     mem,
     panic::PanicInfo,
-    ptr, str,
-    sync::atomic::{AtomicU8, Ordering},
+    ptr,
+    sync::atomic::{AtomicU8, AtomicU32, Ordering},
 };
 
 /// Increased each time an exception with an `ErrorResponse::Continue` response occurs.
-pub static mut SMALL_ERRS: u32 = 0;
+pub static SMALL_ERRS: AtomicU32 = AtomicU32::new(0);
 
 /// Increased each time rbod is ran.
-static mut BIG_ERRS: u32 = 0;
+static BIG_ERRS: AtomicU32 = AtomicU32::new(0);
 
 /// The vga text buffer before the error
 static mut PREV_VGA: RawBuffer = YoinkedBuffer::empty_buffer();
@@ -45,6 +46,7 @@ pub enum ErrorCode {
     PageFault,
     Invalid = 256,
     KernelPanic,
+    SysCmd4,
 }
 
 /// Calls rbod, taking the `ERR_CODE` static as it's first argument.
@@ -57,6 +59,7 @@ unsafe fn setup_rbod(frame: IntStackFrame) -> ! {
 pub enum RbodErrInfo<'a> {
     Exception(IntStackFrame),
     Panic(&'a PanicInfo<'a>),
+    None,
 }
 
 /// Handler for exceptions which come with error codes.
@@ -73,10 +76,11 @@ impl ErrCodeHandler {
 }
 
 /// Rainbow box of death. Very original name I know.
-/// Please disable external interrupts before calling.
 #[allow(clippy::unnecessary_cast)]
-pub unsafe fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandler>) -> ! {
-    unsafe { BIG_ERRS += 1 }
+pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandler>) -> ! {
+    // Go into Uh-oh mode
+    super::cli();
+    BIG_ERRS.fetch_add(1, Ordering::Relaxed);
     swap_buffers();
     vga::clear();
     speaker::stop(); // in case anything was playing, prevent it from playing forever
@@ -87,22 +91,25 @@ pub unsafe fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCod
         "                An unrecoverable error has occurred: ",
         Color::LightRed,
     );
-    print!("{err:?}\n\n\n                                  ERROR INFO\n  Location: ");
+    print!("{err:?}\n\n\n                                  ERROR INFO\n");
 
-    // Print either the exception or panic info
+    // Print either the exception, panic or syscmd info
     match info {
         RbodErrInfo::Exception(frame) => {
             println!(
-                "{:x}   Flags: {}   Code segment: {}\n  Stack pointer: {}   Stack segment: {} <- Should be zero",
+                "  Location: {:x}   Flags: {}   Code segment: {}\n  Stack pointer: {}   Stack segment: {} <- Should be zero",
                 frame.ip, frame.flags, frame.cs, frame.sp, frame.ss
             )
         }
         RbodErrInfo::Panic(info) => {
             println!(
-                "{}\n  Cause: {}",
+                "  Location: {}\n  Cause: {}",
                 info.location().unwrap(), // always succeeds
                 info.message()
             );
+        }
+        RbodErrInfo::None => {
+            println!("             Caused by running either Ctrl+Alt+F4 or SysRq+F4\n")
         }
     }
 
@@ -114,39 +121,19 @@ pub unsafe fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCod
         println!("                          Not present for this error\n\n")
     }
 
-    // Try get the cpu vendor from CPUID
-    #[unsafe(no_mangle)]
-    static mut VENDOR: [u8; 12] = *b"Unknown     ";
-    if cpuid_test() {
-        unsafe {
-            asm!(
-                "mov eax, 0",
-                "cpuid",
-                "mov VENDOR, ebx",
-                "mov [VENDOR + 4], edx",
-                "mov [VENDOR + 8], ecx",
-                options(nostack, preserves_flags)
-            );
-        }
-    }
-
-    // Copy vendor to prevent static mut ref
-    let vendor = unsafe { VENDOR };
-
     // Print the kernel info
-    unsafe {
-        println!(
+    let sysinfo = SystemInfo::now();
+    println!(
             "                                  SYSTEM INFO\n  Kernel: {}   CPU Vendor: {}   Debug: {}   
   Uptime: {}   Small errors: {}   Big errors: {}   Waiting: {}",
-            env!("CARGO_PKG_VERSION_PRE"),
-            str::from_utf8(&vendor).unwrap_or("Invalid"),
-            cfg!(debug_assertions),
-            time::TIME as u64,
-            SMALL_ERRS as u32,
-            BIG_ERRS as u32,
-            time::WAITING.load(Ordering::Relaxed),
+            sysinfo.sunflower_version,
+            sysinfo.cpu_vendor,
+            sysinfo.debug,
+            sysinfo.time,
+            SMALL_ERRS.load(Ordering::Relaxed),
+            BIG_ERRS.load(Ordering::Relaxed),
+            sysinfo.waiting
         );
-    }
 
     // Print the key press options
     vga::print_color(
@@ -176,31 +163,6 @@ pub unsafe fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCod
         check_keyboard();
         rbod_colors();
     }
-}
-
-/// Checks if the cpuid instruction can be used
-// Stolen from https://wiki.osdev.org/CPUID#How_to_use_CPUID
-fn cpuid_test() -> bool {
-    unsafe {
-        asm!(
-            "push rax",
-            "pushf",
-            "pushf",
-            "xor dword ptr [rsp], 0x00200000", // invert id bit
-            "popf",                            // load flags with inverted id bit
-            "pushf",               // store eflags with bit inverted if cpuid is supported
-            "pop rax",
-            "xor rax, [rsp]",      // rax = modified bits
-            "popf",                // restore eflags
-            "and rax, 0x00200000", // if rax != 0 cpuid is supported
-            "cmp rax, 0",          // check if rax == 0
-            "pop rax",
-            "jne {}",              // if not, return true
-            label { return true }
-        )
-    };
-
-    false
 }
 
 /// Runs the corresponding action if any of the `Press KEY to X` keys are pressed
@@ -304,5 +266,5 @@ fn rbod_colors() {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     super::cli();
-    unsafe { rbod(ErrorCode::KernelPanic, RbodErrInfo::Panic(info), None) }
+    rbod(ErrorCode::KernelPanic, RbodErrInfo::Panic(info), None)
 }

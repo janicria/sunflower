@@ -11,7 +11,8 @@ The latest version of Sunflower currently supports:
 - basic screen printing using VGA Text Mode,
 - a semi-basic PS/2 keyboard driver for drawing some of your cool ASCII art,
 - some beeps and boops using the PC Speaker,
-- a rudimentary 100 Hz timer,
+- a rudimentary 100 Hz timer and hardware clock reader,
+- some [system commands](https://github.com/janicria/sunflower?tab=readme-ov-file#system-commands),
 - and the coolest crash screen ever (it's even rainbow)
 
 ## Building
@@ -45,3 +46,25 @@ sudo dd if=target/x86_64-sunflower/release/bootimage-sunflower.bin of=/dev/DEVIC
 replacing `DEVICE` with the USB you want to write sunflower to (usually `sda` or `sdb`). This will **WIPE EVERYTHING** on that drive, so think before running the command and double check you put in the **right device name**.
 
 You'll also need to enable the Legacy BIOS Boot option in your device's BIOS, as well as maybe having to disable Secure Boot and changing your boot order.
+
+## System Commands
+
+Sunflower supports a few builtin keyboard shortcuts, known as system commands. Hold either
+`Ctrl+Alt+FX` or `SysRq+FX`, to run system command `X`. 
+
+The `SysRq` key might be the same as `PrintScreen`on your keyboard. 
+
+
+```
+Ctrl+Alt+F1 / SysRq+F1 - Prints system information
+Ctrl+Alt+F2 / SysRq+F2 - Clears the screen
+Ctrl+Alt+F3 / SysRq+F3 - Beeps loudly
+Ctrl+Alt+F4 / SysRq+F4 - Crashes sunflower via rbod
+Ctrl+Alt+F5 / SysRq+F5 - Restarts the device
+```
+
+## Screenshots
+
+![Sunflower post boot screen](./screenshots/boot.png)
+![Rainbow box of death](./screenshots/rbod.png)
+![System information syscmd](./screenshots/sysinfo.png)

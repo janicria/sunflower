@@ -69,12 +69,12 @@ pub fn kbd_poll_loop() -> ! {
 }
 
 /// Sets external interrupts.
-fn sti() {
+pub fn sti() {
     unsafe { asm!("sti") }
 }
 
 /// Clears external interrupts.
-fn cli() {
+pub fn cli() {
     unsafe { asm!("cli") }
 }
 

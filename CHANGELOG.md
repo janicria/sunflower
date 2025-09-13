@@ -1,5 +1,14 @@
 # Sunflower changelog
 
+## Development 02
+##### Syscmds, sysinfo & RTC 13/9/25
+
+- Added system commands, see `System Commands` section in README
+- Added (probably) accurate launch time using the RTC 
+- Moved rbod cpuid check to sysinfo
+- Added some screenshots
+- Added back disable_enter after accidentally removing it
+- Cleaned up some unsafe code
 
 ## Development 01
 ##### Startup tasks & better keyboard 13/9/25
