@@ -1,8 +1,4 @@
-use crate::{
-    ports::{Port, writeb},
-    vga,
-};
-use core::arch::asm;
+use crate::ports::{Port, writeb};
 
 /// Sends the EOI command to the PIC.
 #[unsafe(no_mangle)]
@@ -52,9 +48,6 @@ pub fn init() {
         // Unmask
         writeb(Port::MainPicData, 0);
         writeb(Port::SecondaryPicData, 0);
-
-        asm!("sti");
-        vga::print_done("Initialised PIC");
     };
 }
 

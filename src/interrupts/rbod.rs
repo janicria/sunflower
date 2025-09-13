@@ -1,5 +1,5 @@
 use crate::{
-    interrupts::{IntStackFrame, idt::ERR_CODE, keyboard::Key},
+    interrupts::{IntStackFrame, idt::ERR_CODE},
     ports::{self, Port},
     speaker, time,
     vga::{
@@ -172,8 +172,7 @@ pub unsafe fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCod
 
     // loop forever...
     loop {
-        let two_hundred_ms = 20;
-        time::wait_no_ints(two_hundred_ms);
+        time::wait_no_ints(20);
         check_keyboard();
         rbod_colors();
     }
@@ -206,19 +205,29 @@ fn cpuid_test() -> bool {
 
 /// Runs the corresponding action if any of the `Press KEY to X` keys are pressed
 fn check_keyboard() {
+    /// The last scancode read from port 0x60.
     static PREV_SCANCODE: AtomicU8 = AtomicU8::new(0);
-    let scancode = unsafe { ports::readb(Port::PS2Data) };
+
+    // Scancodes in set 2.
+    static ONE: u8 = 0x16;
+    static ONE_KEYPAD: u8 = 0x69;
+    static TWO: u8 = 0x1E;
+    static TWO_KEYPAD: u8 = 0x72;
+    static THREE: u8 = 0x26;
+    static THREE_KEYPAD: u8 = 0x7A;
 
     // Return if the previous scancode is the same as the current.
+    let scancode = unsafe { ports::readb(Port::PS2Data) };
     if PREV_SCANCODE.swap(scancode, Ordering::Relaxed) == scancode {
         return;
     }
 
-    if scancode == Key::One as u8 {
+    // Run corresponding action
+    if scancode == ONE || scancode == ONE_KEYPAD {
         super::triple_fault();
-    } else if scancode == Key::Two as u8 {
+    } else if scancode == TWO || scancode == TWO_KEYPAD {
         swap_buffers()
-    } else if scancode == Key::Three as u8 {
+    } else if scancode == THREE || scancode == THREE_KEYPAD {
         speaker::play_song();
     }
 }
@@ -291,10 +300,9 @@ fn rbod_colors() {
     }
 }
 
+/// Ran when a panic occurs.
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    unsafe {
-        asm!("cli");
-        rbod(ErrorCode::KernelPanic, RbodErrInfo::Panic(info), None)
-    }
+    super::cli();
+    unsafe { rbod(ErrorCode::KernelPanic, RbodErrInfo::Panic(info), None) }
 }

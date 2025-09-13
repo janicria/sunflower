@@ -1,6 +1,15 @@
 # Sunflower changelog
 
 
+## Development 01
+##### Startup tasks & better keyboard 13/9/25
+
+- Added startup tasks
+- Redid PS/2 keyboard driver
+- Improved timer handler
+- Moved dummy int handlers to only be for IRQ 7 & 15
+- Improved some comments & fixed typo in README
+- Removed test error comments in kmain & intrinsics feature
 
 ## Development 00 
 ##### 8/9/25

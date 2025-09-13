@@ -1,9 +1,11 @@
 use crate::{
     ports::{self, Port},
-    vga::{self, Corner},
+    startup,
+    vga::Corner,
 };
 use core::{
     arch::asm,
+    convert::Infallible,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
@@ -19,7 +21,7 @@ pub static PIT_BASE_FREQ: u64 = 1193180;
 pub static WAITING: AtomicBool = AtomicBool::new(false);
 
 /// Sets the timer interval in channel 0 to 10 ms.
-pub fn set_timer_interval() {
+pub fn set_timer_interval() -> Result<(), Infallible> {
     static MS_PER_TICK: u16 = 10;
     // divide by 1000 to convert from ms to seconds
     static TICK_INTERVAL: u16 = MS_PER_TICK * (PIT_BASE_FREQ / 1000) as u16;
@@ -35,13 +37,13 @@ pub fn set_timer_interval() {
         ports::writeb(Port::PITChannel0, (TICK_INTERVAL >> 8) as u8); // high byte
     }
 
-    vga::print_done("Initialised PIT");
+    Ok(())
 }
 
 /// Waits for approximately `ticks` ticks (`ticks / 100` seconds).
 ///
-/// May be a few milliseconds shorter in times less than few seconds
-/// and about 0.011% slower with times more than a few minutes.
+/// May be a few milliseconds shorter in times less than few seconds in a VM.
+/// And A LOT slower on ancient computers.
 ///
 /// Works with external interrupts disabled.
 pub fn wait_no_ints(ticks: u64) {
@@ -53,6 +55,10 @@ pub fn wait_no_ints(ticks: u64) {
 
     /// How many ticks have passed since the function was called.
     static TIME: AtomicU64 = AtomicU64::new(0);
+
+    if !startup::init() {
+        return;
+    }
 
     let target = TIME.load(Ordering::Relaxed) + ticks;
     while TIME.load(Ordering::Relaxed) < target {
@@ -71,6 +77,10 @@ pub fn wait_no_ints(ticks: u64) {
 ///
 /// Never returns if external interrupts are disabled.
 pub fn wait(ticks: u64) {
+    if !startup::init() {
+        return;
+    }
+
     unsafe {
         static RED_SMILEY: u16 = 1025;
         WAITING.store(true, Ordering::Relaxed);

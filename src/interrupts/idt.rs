@@ -14,8 +14,16 @@ type Handler = u64;
 #[unsafe(no_mangle)]
 pub static mut ERR_CODE: ErrorCode = ErrorCode::Invalid;
 
-/// The Interrupt Descriptor Table
+/// The Interrupt Descriptor Table.
 pub struct Idt([InterruptDescriptor; 256]);
+
+/// The value used by the lidt instruction load the IDT.
+#[derive(PartialEq)]
+#[repr(C, packed)]
+pub struct IDTDescriptor {
+    size: u16,
+    offset: *const Idt,
+}
 
 /// Pushes all registers with need to be saved before called C ABI functions.
 macro_rules! pushregs {
@@ -78,7 +86,7 @@ fn cont(frame: IntStackFrame) {
     println!("{err:?} at {:x}", frame.ip);
 }
 
-/// Calls rbod
+/// Calls rbod,, never returns.
 macro_rules! rbod_wrapper {
     ($err: expr) => {{
         #[unsafe(naked)]
@@ -97,11 +105,15 @@ macro_rules! rbod_wrapper {
 
 impl Idt {
     /// Creates a new, loaded table, with all it's required entries set.
+    /// This function only creates an IDT, and doesn't load it.
     #[allow(clippy::fn_to_numeric_cast)]
     pub fn new() -> Self {
-        let mut idt = Idt([InterruptDescriptor::empty(); 256]);
-        // A list of entry IDs can be found at: https://wiki.osdev.org/Exceptions
+        /// Where IRQ vectors start in the table.
+        static IRQ_START: usize = 32;
 
+        let mut idt = Idt([InterruptDescriptor::default(); 256]);
+
+        // A list of entry IDs can be found at: https://wiki.osdev.org/Exceptions
         idt.set_handler(0, rbod_wrapper!(0));
         idt.set_handler(1, rbod_wrapper!(1));
         idt.set_handler(2, rbod_wrapper!(2));
@@ -112,10 +124,11 @@ impl Idt {
         idt.set_handler(8, double_fault_handler as Handler);
         idt.set_handler(13, gpf_handler as Handler);
         idt.set_handler(14, page_fault_handler as Handler);
-        idt.set_handler(32, timer_handler as Handler);
-        idt.set_handler(33, key_pressed_wrapper as Handler);
+        idt.set_handler(IRQ_START + 0, timer_handler as Handler);
+        idt.set_handler(IRQ_START + 1, key_pressed_wrapper as Handler);
+        idt.set_handler(IRQ_START + 7, dummy_handler as Handler);
+        idt.set_handler(IRQ_START + 15, dummy_handler as Handler);
 
-        unsafe { idt.load() }
         idt
     }
 
@@ -129,30 +142,24 @@ impl Idt {
         self.0[entry_id] = InterruptDescriptor::new(handler)
     }
 
-    /// Loads the table into the IDTR register.
-    pub unsafe fn load(&self) {
-        /// The value used below for the lidt instruction to load the IDT.
-        #[repr(C, packed)]
-        struct IDTDescriptor {
-            size: u16,
-            offset: *const Idt,
-        }
-
+    /// Loads the table into the `IDTR` register.
+    /// Returns the created `IDTDescriptor`.
+    pub unsafe fn load(&self) -> IDTDescriptor {
         let descriptor = IDTDescriptor {
-            size: (size_of::<Self>() - 1) as u16,
+            size: (size_of::<Idt>() - 1) as u16,
             offset: self,
         };
 
         unsafe {
-            asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax));
+            asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax, nostack));
         }
 
-        vga::print_done("Loaded IDT");
+        descriptor
     }
 }
 
 /// An entry in the `IDT`
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub struct InterruptDescriptor {
     offset_low: u16,    // offset bits 0..15
@@ -180,14 +187,10 @@ impl InterruptDescriptor {
             reserved: 0,
         }
     }
-
-    /// Returns a new descriptor an empty function as it's offset.
-    #[allow(clippy::fn_to_numeric_cast)]
-    fn empty() -> Self {
-        extern "x86-interrupt" fn empty_handler(_frame: IntStackFrame) {}
-        InterruptDescriptor::new(empty_handler as Handler)
-    }
 }
+
+/// Immediately returns.
+extern "x86-interrupt" fn dummy_handler(_frame: IntStackFrame) {}
 
 /// Returns `set` if the `bit`th bit in `code` is set, otherwise returns `clear`.
 fn bit_set(code: u64, bit: u64, set: &'static str, clear: &'static str) -> &'static str {
@@ -263,10 +266,8 @@ unsafe extern "x86-interrupt" fn double_fault_handler(frame: IntStackFrame, _err
 extern "C" fn timer_handler() -> ! {
     naked_asm!(
         pushregs!(),
-        "mov rdi, TIME",
-        "inc rdi", // increase time
-        "mov TIME, rdi",
-        "mov rdi, 32", // timer eoi
+        "inc qword ptr [TIME]", // increase time
+        "mov rdi, 32",          // timer eoi
         "call eoi",
         popregs!(),
         "iretq",
@@ -277,9 +278,9 @@ extern "C" fn timer_handler() -> ! {
 extern "C" fn key_pressed_wrapper() -> ! {
     naked_asm!(
         pushregs!(),
-        "call key_pressed_handler", // in keyboard.rs
-        "mov rdi, 33",              // key pressed eoi
-        "call eoi",                 // send eoi command
+        "call kbd_handler", // in keyboard.rs
+        "mov rdi, 33",      // key pressed eoi
+        "call eoi",         // send eoi command
         popregs!(),
         "iretq",
     );

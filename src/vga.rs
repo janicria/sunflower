@@ -1,5 +1,6 @@
 use crate::ports::{self, Port};
 use core::{
+    convert::Infallible,
     fmt::{self, Write},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
@@ -103,7 +104,7 @@ pub struct CursorPos {
     pub row: AtomicUsize,
 }
 
-/// See `Writer::shift_cursor`
+/// A direction which can cursor can be shifted using `shift_cursor`
 pub enum CursorShift {
     Left,
     Right,
@@ -301,7 +302,7 @@ pub fn clear() {
 /// Fills it with spaces, allowing the vga cursor to blink anywhere.
 ///
 /// Finally, prints the welcome message.
-pub fn init() {
+pub fn init() -> Result<(), Infallible> {
     unsafe {
         let buf = &raw mut BUFFER;
         *buf = &mut *(Corner::TopLeft as usize as *mut RawBuffer);
@@ -309,14 +310,7 @@ pub fn init() {
     }
 
     // Print welcome message
-    print!("Welcome to ");
-    print_color("Sunflower!\n", Color::LightCyan);
-    print_done("Connected VGA")
-}
-
-/// Prints the done messages shown when first booting.
-pub fn print_done(task: &str) {
-    print!("["); // '['
-    print_color(" DONE", Color::Lime);
-    println!(" ] {task}");
+    print!("Hello, ");
+    print_color("Sunflower!\n\n", Color::LightCyan);
+    Ok(())
 }

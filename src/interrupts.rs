@@ -1,4 +1,6 @@
-use idt::Idt;
+use core::{arch::asm, convert::Infallible, hint, mem};
+use idt::{IDTDescriptor, Idt};
+use keyboard::KbdInitError;
 
 /// IDT and exception handlers.
 mod idt;
@@ -25,10 +27,55 @@ struct IntStackFrame {
     ss: u64,
 }
 
-/// Loads the IDT and initialises the PIC.
-pub fn init() {
-    unsafe { IDT = Idt::new() }
-    pic::init()
+/// Loads the IDT.
+pub fn load_idt() -> Result<(), &'static str> {
+    /// IDT Descriptor stored from sidt.
+    #[unsafe(no_mangle)]
+    static mut STORED_IDT: IDTDescriptor = unsafe { mem::zeroed() };
+
+    unsafe {
+        // Load idt
+        let idt = Idt::new();
+        let loaded_idt = idt.load();
+        IDT = Idt::new();
+
+        // Return Err if sidt (store IDT) != descriptor passed to lidt
+        asm!("sidt [STORED_IDT]", options(nostack));
+        if STORED_IDT != loaded_idt {
+            return Err("Stored IDT doesn't match loaded IDT");
+        }
+    }
+
+    Ok(())
+}
+
+/// Initialises the PIC.
+pub fn init_pic() -> Result<(), Infallible> {
+    pic::init();
+    Ok(())
+}
+
+/// Initialises the PS/2 keyboard.
+pub fn init_kbd() -> Result<(), KbdInitError> {
+    keyboard::init()
+}
+
+/// Repeatedly loops polling the keyboard.
+pub fn kbd_poll_loop() -> ! {
+    loop {
+        hint::spin_loop(); // pause instruction
+        keyboard::poll_keyboard();
+    }
+}
+
+/// Sets external interrupts.
+fn sti() {
+    unsafe { asm!("sti") }
+}
+
+/// Clears external interrupts.
+fn cli() {
+    unsafe { asm!("cli") }
 }
 
 /// Causes a triple fault.
@@ -36,6 +83,6 @@ pub fn init() {
 fn triple_fault() {
     unsafe {
         Idt::invalid().load(); // nuke IDT
-        core::intrinsics::unreachable() //  invalid op -> gpf -> double fault -> triple fault
+        asm!("int 99"); //  gpf -> double fault -> triple fault
     }
 }

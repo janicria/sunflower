@@ -9,7 +9,7 @@ It's versioning system is a little strange, with new releases following
 ## Features
 The latest version of Sunflower currently supports:
 - basic screen printing using VGA Text Mode,
-- a very-basic PS/2 keyboard driver for drawing some of your cool ASCII art,
+- a semi-basic PS/2 keyboard driver for drawing some of your cool ASCII art,
 - some beeps and boops using the PC Speaker,
 - a rudimentary 100 Hz timer,
 - and the coolest crash screen ever (it's even rainbow)
@@ -36,7 +36,7 @@ cargo run-pulseaudio  # Run with pulseaudio support
 to run sunflower with either no audio, pipewire support or  pulseaudio support respectively.
 
 ### Real hardware
-WARNING: Sunflower is not fully tested and may cause **damages** or **permanent harm** to your device if you try to run in on your device. I do not hold any responsibility for **anything** that may occur if you decide to do this and you are at you're own risk.
+WARNING: Sunflower is not fully tested and may cause **damages** or **permanent harm** to your device if you try to run in on your device. I do not hold any responsibility for **anything** that may occur if you decide to do this and you are at your own risk.
 
 However, if you'd like to run sunflower anyway on an x86 compatible computer you can run:
 ```

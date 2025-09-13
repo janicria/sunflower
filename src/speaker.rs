@@ -1,6 +1,6 @@
 use crate::{
     ports::{self, Port},
-    time,
+    startup, time,
 };
 
 /// The bits required for the PC speaker to play sound through PIT channel 2.
@@ -12,6 +12,10 @@ static PLAY_BITS: u8 = 3;
 /// when used with certain headphones and requires passing
 /// `-audio driver=<insert driver here>,model=virtio,id=speaker --machine pcspk-audiodev=speaker`
 pub fn play(freq: u32) {
+    if !startup::init() {
+        return;
+    }
+
     unsafe {
         static COMMAND: u8 = 0b10110110;
 
@@ -45,11 +49,10 @@ pub fn stop() {
 /// Works without external interrupts, yet is slightly inaccurate if `no_ints` is set.
 pub fn play_special(freq: u32, millis: u64, repeat: bool, no_ints: bool) {
     let (wait, ticks) = if no_ints {
-        // Convert millis to double the usual ticks due to
-        // wait_no_int playing much faster at shorter times.
-        (time::wait_no_ints as fn(u64), millis / 5)
+        // Normal speed in VM, insanely slow on old computers.
+        (time::wait_no_ints as fn(u64), millis / 2)
     } else {
-        // Convert millis to ticks.
+        // Convert millis to ticks
         (time::wait as fn(u64), millis / 10)
     };
 
