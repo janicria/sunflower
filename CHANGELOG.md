@@ -1,7 +1,17 @@
 # Sunflower changelog
 
+## Development 04
+##### GDT & Topbar 20/9/25
+- Sunflower now loads it's own GDT!!
+- Added the topbar & help syscmd (SysCmd 7)
+- Added the `LoadDescriptorError` wrapper for easier IDT & GDT errors
+- Made the rbod border prettier
+- Updated screenshots
+- Gave `print!` and `println!` color options, to replace `print_color`
+- Moved the version from the manifest file to sysinfo
+
 ## Development 03
-##### Wrappers, better RTC & SysCmd 6 17/9/25
+##### Wrappers, better RTC & SysCmd 6 19/9/25
 
 - Added the `InitLater` & `UnsafeFlag` wrapper types
 - Replaced some static muts with safe counterparts

@@ -1,7 +1,4 @@
-use crate::{
-    vga::{self, Color},
-    wrappers::UnsafeFlag,
-};
+use crate::wrappers::UnsafeFlag;
 use core::fmt::Display;
 
 /// Whether or not the PIC has been initialised yet
@@ -52,7 +49,7 @@ where
 /// Prints `[ OK! ] <task>`.
 pub fn print_ok(task: &str) {
     print!("[");
-    vga::print_color(" OK", Color::Lime);
+    print!(fg = Lime, " OK");
     println!(" ] {task}");
 }
 
@@ -62,6 +59,6 @@ where
     E: Display,
 {
     print!("[");
-    vga::print_color(" ERR", Color::LightRed);
+    print!(fg = LightRed, " ERR");
     println!(" ] {task}: {err}");
 }

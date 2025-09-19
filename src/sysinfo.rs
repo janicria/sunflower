@@ -1,6 +1,15 @@
 use crate::{startup, time};
 use core::{arch::asm, fmt::Display, sync::atomic::Ordering};
 
+/// The current version of the sunflower kernel.
+static VERSION_LONG: &str = "SFK-00-Development-04";
+
+/// A shortened version of sunflower.
+static VERSION_SHORT: &str = "SFK-Dev-04";
+
+/// Message updated each patch.
+static PATCH_QUOTE: &str = "Have fun!  ";
+
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]
 static mut VENDOR: [u8; 12] = *b"Unknown     ";
@@ -8,7 +17,6 @@ static mut VENDOR: [u8; 12] = *b"Unknown     ";
 /// Checks if the cpuid instruction can be used.
 /// [`Reference`](https://wiki.osdev.org/CPUID#How_to_use_CPUID)
 pub fn check_cpuid() -> Result<(), &'static str> {
-    // Safety: 
     unsafe {
         asm!(
             "push rax",                        // save rax
@@ -24,7 +32,6 @@ pub fn check_cpuid() -> Result<(), &'static str> {
             "cmp rax, 0",                      // check if rax == 0
             "pop rax",                         // restore rax
             "jne {}",                          // if not, we can use cpuid
-            // Safety: 
             label { unsafe { return load_vendor() } }
         )
     };
@@ -78,7 +85,9 @@ fn get_cpuid() -> Option<&'static str> {
 
 /// Information about the system.
 pub struct SystemInfo {
-    pub sunflower_version: &'static str,
+    pub sfk_version_long: &'static str,
+    pub sfk_version_short: &'static str,
+    pub patch_quote: &'static str,
     pub cpu_vendor: &'static str,
     pub debug: bool,
     pub time: u64,
@@ -93,7 +102,9 @@ impl SystemInfo {
         let time = time::get_time();
 
         SystemInfo {
-            sunflower_version: env!("CARGO_PKG_VERSION_PRE"),
+            sfk_version_long: VERSION_LONG,
+            sfk_version_short: VERSION_SHORT,
+            patch_quote: PATCH_QUOTE,
             cpu_vendor: get_cpuid().unwrap_or("Unknown"),
             debug: cfg!(debug_assertions), // compile error in main.rs should prevent this
             time,
@@ -109,12 +120,11 @@ impl Display for SystemInfo {
         // Write the first few fields
         write!(
             f,
-            "System info
-Sunflower version: {}
+            "Sunflower version: {}
 Debug build: {}
 CPU Vendor: {}
 Launch time: ",
-            self.sunflower_version, self.debug, self.cpu_vendor,
+            self.sfk_version_long, self.debug, self.cpu_vendor,
         )?;
 
         // Write launch time

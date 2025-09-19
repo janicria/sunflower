@@ -62,10 +62,12 @@ Ctrl+Alt+F3 / SysRq+F3 - Beeps loudly
 Ctrl+Alt+F4 / SysRq+F4 - Crashes sunflower via rbod
 Ctrl+Alt+F5 / SysRq+F5 - Restarts the device
 Ctrl+Alt+F6 / SysRq+F6 - Swap between text buffers
+Ctrl+Alt+F7 / SysRq+F7 - Show help
 ```
 
 ## Screenshots
 
 ![Sunflower post boot screen](./screenshots/boot.png)
 ![Rainbow box of death](./screenshots/rbod.png)
+![Help screen](./screenshots/help.png)
 ![System information syscmd](./screenshots/sysinfo.png)

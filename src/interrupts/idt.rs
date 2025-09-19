@@ -2,10 +2,8 @@ use super::{
     IntStackFrame,
     rbod::{self, ErrCodeHandler, ErrorCode, RbodErrInfo},
 };
-use crate::vga::{self, Color};
 use core::{
     arch::{asm, naked_asm},
-    mem,
     sync::atomic::Ordering,
 };
 
@@ -82,7 +80,7 @@ macro_rules! cont_wrapper {
 #[unsafe(no_mangle)]
 fn cont(frame: IntStackFrame) {
     rbod::SMALL_ERRS.fetch_add(1, Ordering::Relaxed);
-    vga::print_color("An unexpected error occurred: ", Color::LightRed);
+    print!(fg = LightRed, "An unexpected error occurred: ");
     let err = unsafe { ERR_CODE };
     println!("{err:?} at {:x}", frame.ip);
 }
@@ -136,12 +134,12 @@ impl Idt {
 
     /// Returns an invalid IDT.
     pub const fn invalid() -> Self {
-        unsafe { mem::transmute::<[u128; 256], Idt>([0u128; 256]) }
+        Idt([InterruptDescriptor::invalid(); 256])
     }
 
     /// Sets the table's entry with id `entry_id`
     fn set_handler(&mut self, entry_id: usize, handler: Handler) {
-        self.0[entry_id] = InterruptDescriptor::new(handler)
+        self.0[entry_id] = InterruptDescriptor::new(handler, 0)
     }
 
     /// Loads the table into the `IDTR` register.
@@ -176,8 +174,21 @@ pub struct InterruptDescriptor {
 }
 
 impl InterruptDescriptor {
-    /// Returns a new descriptor using `handler` as it's offset.
-    fn new(offset_ptr: Handler) -> Self {
+    /// Creates a new, empty descriptor.
+    const fn invalid() -> Self {
+        InterruptDescriptor {
+            offset_low: 0,
+            selector: 0,
+            ist: 0,
+            attributes: 0,
+            offset_middle: 0,
+            offset_high: 0,
+            reserved: 0,
+        }
+    }
+
+    /// Returns a new descriptor using `handler` as it's offset and `ist` for the IST.
+    fn new(offset_ptr: Handler, ist: u8) -> Self {
         let cs_reg;
         unsafe { asm!("mov {0:x}, cs", out(reg) cs_reg) }
 
@@ -186,7 +197,7 @@ impl InterruptDescriptor {
             offset_low: offset_ptr as u16,
             offset_middle: (offset_ptr >> 16) as u16,
             offset_high: (offset_ptr >> 32) as u32,
-            ist: 0,
+            ist,
             attributes: 0x8E, // gate type = interrupt, dpl = 0, present = 1
             reserved: 0,
         }

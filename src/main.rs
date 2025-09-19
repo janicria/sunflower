@@ -11,6 +11,9 @@ mod vga;
 /// Handles the InitLater and UnsafeFlag wrappers.
 mod wrappers;
 
+/// Handles loading a new GDT
+mod gdt;
+
 /// Handles various interrupts
 mod interrupts;
 
@@ -43,6 +46,7 @@ and use clippy via `cargo paperclip`"
 #[unsafe(export_name = "_start")]
 pub unsafe extern "C" fn kmain() -> ! {
     startup::run("Connected VGA", vga::init);
+    startup::run("Loaded GDT", gdt::load_gdt);
     startup::run("Loaded IDT", interrupts::load_idt);
     startup::run("Initialised PIC", interrupts::init_pic);
     startup::run("Prepared RTC sync", time::setup_rtc_int);
@@ -51,7 +55,8 @@ pub unsafe extern "C" fn kmain() -> ! {
     startup::run("Checked CPUID", sysinfo::check_cpuid);
     startup::run("Finished RTC sync", time::wait_for_rtc_sync);
 
-    vga::print_color("All startup tasks completed! \u{1}\n\n", vga::Color::Green);
+    vga::draw_topbar("Sunflower");
+    println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
     vga::update_vga_cursor();
     speaker::play_chime();
     interrupts::kbd_poll_loop()

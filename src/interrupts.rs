@@ -1,8 +1,8 @@
 use crate::{
     time, vga,
-    wrappers::{InitError, InitLater},
+    wrappers::{InitLater, LoadDescriptorError},
 };
-use core::{arch::asm, convert::Infallible, fmt::Display, hint};
+use core::{arch::asm, convert::Infallible, hint};
 use idt::{IDTDescriptor, Idt};
 use keyboard::KbdInitError;
 
@@ -32,15 +32,11 @@ struct IntStackFrame {
 }
 
 /// Loads the IDT.
-pub fn load_idt() -> Result<(), LoadIDTError> {
+pub fn load_idt() -> Result<(), LoadDescriptorError<Idt>> {
     let idt = Idt::new();
     // Safety: Using properly filled out IDT.
     let loaded_idt = unsafe { idt.load() };
-
-    // Return Err if the load fails
-    if let Err(e) = IDT.init(Idt::new()) {
-        return Err(LoadIDTError::Load(e));
-    }
+    IDT.init(Idt::new())?;
 
     let mut stored_idt = IDTDescriptor::default();
     // Store loaded IDT into a local variable. Safety: We're just storing a value
@@ -48,25 +44,10 @@ pub fn load_idt() -> Result<(), LoadIDTError> {
 
     // Return Err if sidt (store IDT) != descriptor passed to lidt
     if stored_idt != loaded_idt {
-        return Err(LoadIDTError::Store("Stored IDT doesn't match loaded IDT"));
+        return Err(LoadDescriptorError::Store("IDT"));
     }
 
     Ok(())
-}
-
-/// The error returned from `load_idt`.
-pub enum LoadIDTError {
-    Load(InitError<Idt>),
-    Store(&'static str),
-}
-
-impl Display for LoadIDTError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            LoadIDTError::Load(e) => write!(f, "Failed loading IDT - {e}"),
-            LoadIDTError::Store(e) => write!(f, "{e}"),
-        }
-    }
 }
 
 /// Initialises the PIC.

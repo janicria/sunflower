@@ -4,7 +4,7 @@ use crate::{
     speaker,
     sysinfo::SystemInfo,
     time,
-    vga::{self, BUFFER_HEIGHT, BUFFER_WIDTH, Color, Corner, VGAChar},
+    vga::{self, BUFFER_HEIGHT, BUFFER_WIDTH, Color, Corner, VGAChar, YoinkedBuffer},
 };
 use core::{
     panic::PanicInfo,
@@ -74,6 +74,8 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     // Go into Uh-oh mode
     super::cli();
     BIG_ERRS.fetch_add(1, Ordering::Relaxed);
+    time::set_waiting_char(false);
+    time::WAITING_CHAR.store(false, Ordering::Relaxed);
     speaker::stop(); // in case anything was playing, prevent it from playing forever
 
     // Safety: Whatever was using the buffer will never be returned to from rbod
@@ -82,13 +84,15 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     vga::clear();
 
     // Begin the printing
-    println!("--------------------------------------------------------------------------------");
-    vga::print_color(
-        "                An unrecoverable error has occurred: ",
-        Color::LightRed,
+    vga::write_char(VGAChar::TOPLEFT_CORNER, Color::Grey, Color::Black);
+    print!("------------------------------------------------------------------------------");
+    vga::write_char(VGAChar::TOPRIGHT_CORNER, Color::Grey, Color::Black);
+    print!(
+        fg = LightRed,
+        "\n                An unrecoverable error has occurred: "
     );
-    print!("{err:?}\n\n\n                                  ERROR INFO\n");
-    
+    println!("{err:?}\n\n\n                                  ERROR INFO");
+
     // Print either the exception, panic or syscmd info
     match info {
         RbodErrInfo::Exception(frame) => {
@@ -122,7 +126,7 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     println!(
             "                                  SYSTEM INFO\n  Kernel: {}   CPU Vendor: {}   Debug: {}   
   Uptime: {}   Small errors: {}   Big errors: {}   Waiting: {}",
-            sysinfo.sunflower_version,
+            sysinfo.sfk_version_long,
             sysinfo.cpu_vendor,
             sysinfo.debug,
             sysinfo.time,
@@ -132,24 +136,43 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
         );
 
     // Print the key press options
-    vga::print_color(
+    print!(
+        fg = LightBlue,
         "\n\n                        Press 1 to restart device
                         Press 2 to show previous output
                         Press 3 to play a relaxing song",
-        Color::LightBlue,
     );
-    vga::print_color(
-        "\n\n                             PRESS KEY TO PROCEED",
-        Color::LightRed,
+    println!(
+        fg = LightRed,
+        "\n\n                             PRESS KEY TO PROCEED\n"
     );
-    print!("\n\n-------------------------------------------------------------------------------");
 
-    // Draw vertical lines for the box
+    vga::write_char(VGAChar::BOTTOMLEFT_CORNER, Color::Grey, Color::Black);
+    print!("------------------------------------------------------------------------------");
+
+    // Set the last
     unsafe {
-        for row in 0..BUFFER_HEIGHT {
-            static PIPE: VGAChar = VGAChar::new(124, Color::White, Color::Black); // |
-            vga::BUFFER[row as usize][0] = PIPE;
-            vga::BUFFER[row as usize][BUFFER_WIDTH as usize - 1] = PIPE;
+        vga::BUFFER[BUFFER_HEIGHT as usize - 1][BUFFER_WIDTH as usize - 1] =
+            VGAChar::BOTTOMRIGHT_CORNER
+    }
+
+    // Always succeeds
+    if let Some(mut buf) = YoinkedBuffer::try_yoink() {
+        let buf = buf.buffer();
+
+        // Set bottom right corner
+        buf[BUFFER_HEIGHT as usize - 1][BUFFER_WIDTH as usize - 1] = VGAChar::BOTTOMRIGHT_CORNER;
+
+        // Draw vertical lines for the box
+        for row in 1..BUFFER_HEIGHT - 1 {
+            buf[row as usize][0] = VGAChar::VERTICAL_BORDER;
+            buf[row as usize][BUFFER_WIDTH as usize - 1] = VGAChar::VERTICAL_BORDER;
+        }
+
+        // Draw horizontal lines for the box
+        for col in 1..BUFFER_WIDTH - 1 {
+            buf[0][col as usize] = VGAChar::HORIZONTAL_BORDER;
+            buf[BUFFER_HEIGHT as usize - 1][col as usize] = VGAChar::HORIZONTAL_BORDER;
         }
     }
 
@@ -211,7 +234,7 @@ fn rbod_colors() {
     static VERTICAL_INCREASE: u64 = BUFFER_WIDTH as u64 * VGA_CHAR_SIZE;
 
     let char_ptr = CHAR_PTR.load(Ordering::Relaxed) as *mut u16;
-    let color_bits = COLOR.load(Ordering::Relaxed) << 12;
+    let color_bits = COLOR.load(Ordering::Relaxed) << 8;
     // Safety: TopRight is safe to write to and read from and won't do anything strange
     unsafe {
         // Set the current chars color to the COLOR static

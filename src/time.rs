@@ -1,9 +1,9 @@
 use crate::{
-    wrappers::{InitError, InitLater},
     interrupts,
     ports::{self, Port},
     startup,
     vga::Corner,
+    wrappers::{InitError, InitLater},
 };
 use core::{
     arch::{asm, naked_asm},
@@ -28,6 +28,9 @@ static RTC_SYNC_DONE: AtomicBool = AtomicBool::new(false);
 /// CMOS register B.
 static CMOS_REG_B: u8 = 0x8B;
 
+/// The waiting character is only able to be toggled when this static is.
+pub static WAITING_CHAR: AtomicBool = AtomicBool::new(true);
+
 /// Sets the timer interval in channel 0 to 10 ms.
 pub fn set_timer_interval() -> Result<(), &'static str> {
     static MS_PER_TICK: u16 = 10;
@@ -45,7 +48,7 @@ pub fn set_timer_interval() -> Result<(), &'static str> {
 
     interrupts::sti();
 
-    // Safety: Sending valid command (see link above) 
+    // Safety: Sending valid command (see link above)
     // and can assume the PIT was initialised after sending them
     unsafe {
         ports::writeb(Port::PITCmd, COMMAND);
@@ -65,15 +68,19 @@ pub extern "C" fn get_time() -> u64 {
     #[unsafe(no_mangle)]
     static mut TIME: u64 = 0;
 
-    // Safety: I'm pretty both the increment and loading of TIME are only one instruction each
+    // Safety: I'm pretty sure both the increment and loading of TIME are only one instruction each
     naked_asm!("mov rax, [TIME]", "ret")
 }
 
 /// Toggles the waiting character on or off.
-fn set_waiting_char(show: bool) {
+pub fn set_waiting_char(show: bool) {
     static PREV: AtomicU16 = AtomicU16::new(0);
-    static WAITING_CHAR: u16 = 1025;
+    static CHAR: u16 = 12289;
     let ptr = Corner::TopRight as usize as *mut u16;
+
+    if !WAITING_CHAR.load(Ordering::Relaxed) {
+        return;
+    }
 
     let write_waiting_char = |char: u16| {
         // Safety: TopRight is valid, aligned & won't do anything weird when written to
@@ -86,7 +93,7 @@ fn set_waiting_char(show: bool) {
         // Safety: TopRight is valid, aligned & won't do anything weird when read from
         let prev = unsafe { ptr::read_volatile(ptr) };
         PREV.store(prev, Ordering::Relaxed);
-        write_waiting_char(WAITING_CHAR);
+        write_waiting_char(CHAR);
     } else {
         // ptr = PREV
         let prev = PREV.load(Ordering::Relaxed);

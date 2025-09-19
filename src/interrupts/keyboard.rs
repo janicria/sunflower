@@ -183,8 +183,8 @@ pub fn poll_keyboard() {
         && let Some(ref event) = event
     {
         // Handle shift and sys request pressed
-        // We can't just flip the bit if the key is pressed OR released above, as holding one of the keys 
-        // while launching QEMU (or any other VM I assume) causes the key  to be permanently stuck in the 
+        // We can't just flip the bit if the key is pressed OR released above, as holding one of the keys
+        // while launching QEMU (or any other VM I assume) causes the key  to be permanently stuck in the
         // opposite state, as sunflower sees a key is released, and sets the bit, when it should be cleared.
         if event.state == KeyState::Down {
             if scancode == LSHIFT_SCANCODE {
@@ -225,11 +225,15 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
     if (kbd.is_ctrl() && kbd.is_alt()) || SYSRQ.load(Ordering::Relaxed) {
         match key {
             KeyCode::F1 => print_sysinfo(),
-            KeyCode::F2 => vga::clear(),
             KeyCode::F3 => speaker::play_special(600, 400, false, false),
             KeyCode::F4 => super::rbod::rbod(ErrorCode::SysCmd4, RbodErrInfo::None, None),
             KeyCode::F5 => super::triple_fault(),
             KeyCode::F6 => vga::swap_buffers(),
+            KeyCode::F7 => print_help(),
+            KeyCode::F2 => {
+                vga::clear();
+                vga::draw_topbar(" Alt Buf ");
+            }
             _ => (),
         }
     }
@@ -240,13 +244,54 @@ fn print_sysinfo() {
     // Store prev buffer in alt
     vga::swap_buffers();
     vga::clear();
+    vga::draw_topbar(" SysInfo ");
 
+    println!(fg = LightBlue, "\nSystem information");
     print!("{}", SystemInfo::now());
 
     // Print message in bottom left
     CursorPos::set_col(0);
     CursorPos::set_row(BUFFER_HEIGHT - 1);
     print!("Previous screen stored in alt buffer (Use SysCmd 6)")
+}
+
+/// Used by syscmd 7 to print the system info.
+fn print_help() {
+    // Store prev buffer in alt
+    vga::swap_buffers();
+    vga::clear();
+    vga::draw_topbar("   Help  ");
+
+    println!(fg = Pink, "\nWelcome to Sunflower!! \u{1}\n");
+
+    // Explains what syscmds are
+    println!(fg = LightBlue, "\nHow to run System Commands");
+    print!("Sunflower supports some keyboard shortcuts, known as System Commands or SysCmds.");
+    println!(
+        "Hold either Ctrl+Alt+FX or SysRq+FX, to run system command X.
+Note: The SysRq key might be the same as PrintScreen on your keyboard."
+    );
+
+    // System commands list
+    println!(fg = LightBlue, "\nAvailable System Commands");
+    println!(
+        "1 - Prints system information   2 - Clears the screen
+3 - Beeps loudly                4 - Crashes sunflower via rbod
+5 - Restarts the device         6 - Swap between text buffers"
+    );
+
+    // Talks about sunflower being a glorified text editor
+    println!(fg = LightBlue, "\nDrawing");
+    println!("By using the arrow keys, you can position the cursor to anywhere on the screen.
+You can write or draw whatever you want, by typing characters on you keyboard.");
+
+    // Explains what rbod is
+    println!(fg = LightBlue, "\nRBOD - Rainbow Box Of Death");
+    println!(
+        "Sunflower's crash handler is called rbod (original name I know).
+It looks really cool and I recommend running SysCmds 4 just to see it.
+When in rbod you're locked to the three key options, and can't do anything else."
+    )
 }
 
 /// Handles when an arrow key is pressed.

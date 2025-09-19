@@ -125,3 +125,24 @@ impl UnsafeFlag {
         self.val.store(val, Ordering::Relaxed);
     }
 }
+
+/// A wrapper type for easily checking if your descriptor (`T`) loaded correctly.
+pub enum LoadDescriptorError<T> {
+    Load(InitError<T>),
+    Store(&'static str),
+}
+
+impl<T> From<InitError<T>> for LoadDescriptorError<T> {
+    fn from(err: InitError<T>) -> Self {
+        LoadDescriptorError::Load(err)
+    }
+}
+
+impl<T> Display for LoadDescriptorError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LoadDescriptorError::Load(e) => write!(f, "Failed loading descriptor - {e}"),
+            LoadDescriptorError::Store(t) => write!(f, "Stored {t} doesn't match loaded IDT{t}"),
+        }
+    }
+}
