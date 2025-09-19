@@ -4,15 +4,12 @@ use crate::{
     speaker,
     sysinfo::SystemInfo,
     time,
-    vga::{
-        self, BUFFER, BUFFER_HEIGHT, BUFFER_WIDTH, Color, Corner, RawBuffer, VGAChar, YoinkedBuffer,
-    },
+    vga::{self, BUFFER_HEIGHT, BUFFER_WIDTH, Color, Corner, VGAChar},
 };
 use core::{
-    mem,
     panic::PanicInfo,
     ptr,
-    sync::atomic::{AtomicU8, AtomicU32, Ordering},
+    sync::atomic::{AtomicU8, AtomicU16, AtomicU32, AtomicU64, Ordering},
 };
 
 /// Increased each time an exception with an `ErrorResponse::Continue` response occurs.
@@ -20,10 +17,6 @@ pub static SMALL_ERRS: AtomicU32 = AtomicU32::new(0);
 
 /// Increased each time rbod is ran.
 static BIG_ERRS: AtomicU32 = AtomicU32::new(0);
-
-/// The vga text buffer before the error
-static mut PREV_VGA: RawBuffer = YoinkedBuffer::empty_buffer();
-
 /// An error which caused handle_err to be run.
 ///
 /// A lot of these errors should never actually occur,
@@ -81,9 +74,12 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     // Go into Uh-oh mode
     super::cli();
     BIG_ERRS.fetch_add(1, Ordering::Relaxed);
-    swap_buffers();
-    vga::clear();
     speaker::stop(); // in case anything was playing, prevent it from playing forever
+
+    // Safety: Whatever was using the buffer will never be returned to from rbod
+    unsafe { vga::BUFFER_HELD.store(false) };
+    vga::swap_buffers();
+    vga::clear();
 
     // Begin the printing
     println!("--------------------------------------------------------------------------------");
@@ -92,7 +88,7 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
         Color::LightRed,
     );
     print!("{err:?}\n\n\n                                  ERROR INFO\n");
-
+    
     // Print either the exception, panic or syscmd info
     match info {
         RbodErrInfo::Exception(frame) => {
@@ -152,8 +148,8 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     unsafe {
         for row in 0..BUFFER_HEIGHT {
             static PIPE: VGAChar = VGAChar::new(124, Color::White, Color::Black); // |
-            vga::BUFFER[row][0] = PIPE;
-            vga::BUFFER[row][BUFFER_WIDTH - 1] = PIPE;
+            vga::BUFFER[row as usize][0] = PIPE;
+            vga::BUFFER[row as usize][BUFFER_WIDTH as usize - 1] = PIPE;
         }
     }
 
@@ -188,77 +184,95 @@ fn check_keyboard() {
     if scancode == ONE || scancode == ONE_KEYPAD {
         super::triple_fault();
     } else if scancode == TWO || scancode == TWO_KEYPAD {
-        swap_buffers()
+        vga::swap_buffers()
     } else if scancode == THREE || scancode == THREE_KEYPAD {
         speaker::play_song();
     }
 }
 
-/// Swaps the values of the `BUFFER` and `PREV_VGA` statics.
-fn swap_buffers() {
-    unsafe { ptr::swap(BUFFER, &raw mut PREV_VGA) }
-}
-
 /// Changes the boxes colors.
 fn rbod_colors() {
-    static VGA_CHAR: usize = size_of::<VGAChar>();
-    static SKIPPED_COLORS: [Color; 2] = [Color::Grey, Color::LightGrey];
-    static mut LAST_TURN: Corner = Corner::TopLeft; // the last turn the rainbow made
-    static mut COLOR: u16 = Color::Red as u16; // current color
-    static mut FRONT_CHAR: usize = Corner::TopLeft as usize; // current char
+    /// The size of a `VgaChar`.
+    static VGA_CHAR_SIZE: u64 = size_of::<VGAChar>() as u64;
 
-    // Set chars color to color
+    /// Grey and LightGrey.
+    static SKIPPED_COLORS: [u16; 2] = [7, 8];
+
+    /// The pointer to the last turn the rainbow made.
+    static LAST_TURN: AtomicU64 = AtomicU64::new(Corner::TopLeft as u64);
+
+    /// The current color.
+    static COLOR: AtomicU16 = AtomicU16::new(Color::Red as u16);
+
+    /// A pointer to the current char being colored.
+    static CHAR_PTR: AtomicU64 = AtomicU64::new(Corner::TopLeft as u64);
+
+    /// How much `CHAR_PTR` has to increase / decrease by, to move up / down one column.
+    static VERTICAL_INCREASE: u64 = BUFFER_WIDTH as u64 * VGA_CHAR_SIZE;
+
+    let char_ptr = CHAR_PTR.load(Ordering::Relaxed) as *mut u16;
+    let color_bits = COLOR.load(Ordering::Relaxed) << 12;
+    // Safety: TopRight is safe to write to and read from and won't do anything strange
     unsafe {
-        let char = FRONT_CHAR as *mut u16;
-        *char = *char & 0b00000000_11111111 | COLOR << 8;
+        // Set the current chars color to the COLOR static
+        let char = ptr::read_volatile(char_ptr);
+        ptr::write_volatile(char_ptr, char & 0b11111111 | color_bits);
     }
 
     // Update front char
-    match unsafe { LAST_TURN } {
-        Corner::TopLeft => unsafe {
-            // going to the right
-            FRONT_CHAR += VGA_CHAR;
+    match LAST_TURN.load(Ordering::Relaxed) {
+        v if v == Corner::TopLeft as u64 => {
+            // Going to the right
+            CHAR_PTR.fetch_add(VGA_CHAR_SIZE, Ordering::Relaxed);
 
-            if FRONT_CHAR == Corner::TopRight as usize + VGA_CHAR {
-                LAST_TURN = Corner::TopRight;
-                FRONT_CHAR -= VGA_CHAR
+            // If we've hit the top right corner
+            if CHAR_PTR.load(Ordering::Relaxed) == Corner::TopRight as u64 + VGA_CHAR_SIZE {
+                LAST_TURN.store(Corner::TopRight as u64, Ordering::Relaxed);
+                CHAR_PTR.fetch_sub(VGA_CHAR_SIZE, Ordering::Relaxed);
             }
-        },
-        Corner::TopRight => unsafe {
-            // going down
-            FRONT_CHAR += (BUFFER_WIDTH) * VGA_CHAR;
+        }
+        v if v == Corner::TopRight as u64 => {
+            // Going down
+            CHAR_PTR.fetch_add(VERTICAL_INCREASE, Ordering::Relaxed);
 
-            if FRONT_CHAR == Corner::BottomRight as usize {
-                LAST_TURN = Corner::BottomRight;
-                FRONT_CHAR -= (BUFFER_WIDTH) * VGA_CHAR;
+            // If we've hit the bottom right corner
+            if CHAR_PTR.load(Ordering::Relaxed) == Corner::BottomRight as u64 {
+                LAST_TURN.store(Corner::BottomRight as u64, Ordering::Relaxed);
+                CHAR_PTR.fetch_sub(VERTICAL_INCREASE, Ordering::Relaxed);
             }
-        },
-        Corner::BottomRight => unsafe {
-            // going to the left
-            FRONT_CHAR -= VGA_CHAR;
+        }
+        v if v == Corner::BottomRight as u64 => {
+            // Going to the left
+            CHAR_PTR.fetch_sub(VGA_CHAR_SIZE, Ordering::Relaxed);
 
-            if FRONT_CHAR == Corner::BottomLeft as usize {
-                LAST_TURN = Corner::BottomLeft;
-                FRONT_CHAR += VGA_CHAR;
+            // If we've hit the bottom left corner
+            if CHAR_PTR.load(Ordering::Relaxed) == Corner::BottomLeft as u64 {
+                LAST_TURN.store(Corner::BottomLeft as u64, Ordering::Relaxed);
+                CHAR_PTR.fetch_add(VGA_CHAR_SIZE, Ordering::Relaxed);
             }
-        },
-        Corner::BottomLeft => unsafe {
-            // going up
-            FRONT_CHAR -= BUFFER_WIDTH * VGA_CHAR;
+        }
+        v if v == Corner::BottomLeft as u64 => {
+            // Going up
+            CHAR_PTR.fetch_sub(VERTICAL_INCREASE, Ordering::Relaxed);
 
-            if FRONT_CHAR == Corner::TopLeft as usize {
-                LAST_TURN = Corner::TopLeft;
+            // If we've completed a full box
+            if CHAR_PTR.load(Ordering::Relaxed) == Corner::TopLeft as u64 {
+                LAST_TURN.store(Corner::TopLeft as u64, Ordering::Relaxed);
+                let color = COLOR.fetch_add(1, Ordering::Relaxed) + 1;
 
-                // Increase color
-                COLOR += 1;
-                if COLOR > Color::Yellow as u16 {
-                    COLOR = 1
+                // Wrap around when reaching the max
+                if color > Color::Yellow as u16 {
+                    COLOR.store(1, Ordering::Relaxed);
                 };
-                while SKIPPED_COLORS.contains(&mem::transmute::<u16, Color>(COLOR)) {
-                    COLOR += 1;
+
+                // Skip over colors marked as skipped
+                while SKIPPED_COLORS.contains(&COLOR.load(Ordering::Relaxed)) {
+                    COLOR.fetch_add(1, Ordering::Relaxed);
                 }
             }
-        },
+        }
+
+        _ => (),
     }
 }
 

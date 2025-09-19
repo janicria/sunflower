@@ -1,5 +1,17 @@
 # Sunflower changelog
 
+## Development 03
+##### Wrappers, better RTC & SysCmd 6 17/9/25
+
+- Added the `InitLater` & `UnsafeFlag` wrapper types
+- Replaced some static muts with safe counterparts
+- Added RTC time sync error codes via new startup task
+- Added a new system command - SysCmd 6
+- Created some VGA cursor helper functions for some reason
+- Moved `SYS_INIT` into many smaller `X_INIT` statics and added them to SysCmd 1
+- Added clippy command which avoids compile error (cargo paperclip)
+- Patched a bug where holding shift or SysRq when launching sunflower in a VM would causes the key to become stuck in the opposite state
+
 ## Development 02
 ##### Syscmds, sysinfo & RTC 13/9/25
 

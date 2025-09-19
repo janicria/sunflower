@@ -1,4 +1,4 @@
-use crate::{time, vga};
+use crate::{startup, time};
 use core::{arch::asm, fmt::Display, sync::atomic::Ordering};
 
 /// CPU Vendor ID returned from cpuid.
@@ -8,11 +8,12 @@ static mut VENDOR: [u8; 12] = *b"Unknown     ";
 /// Checks if the cpuid instruction can be used.
 /// [`Reference`](https://wiki.osdev.org/CPUID#How_to_use_CPUID)
 pub fn check_cpuid() -> Result<(), &'static str> {
+    // Safety: 
     unsafe {
         asm!(
             "push rax",                        // save rax
             "pushf",                           // store eflags
-            "pushf",                           // store again due to poping it again later
+            "pushf",                           // store again due to popping it again later
             "xor dword ptr [rsp], 0x00200000", // invert id bit
             "popf",                            // load flags with inverted id bit
             "pushf",                           // store eflags with inverted bit if cpuid is supported
@@ -23,6 +24,7 @@ pub fn check_cpuid() -> Result<(), &'static str> {
             "cmp rax, 0",                      // check if rax == 0
             "pop rax",                         // restore rax
             "jne {}",                          // if not, we can use cpuid
+            // Safety: 
             label { unsafe { return load_vendor() } }
         )
     };
@@ -88,7 +90,7 @@ pub struct SystemInfo {
 impl SystemInfo {
     /// Returns the current info about the system.
     pub fn now() -> Self {
-        let time = unsafe { time::TIME };
+        let time = time::get_time();
 
         SystemInfo {
             sunflower_version: env!("CARGO_PKG_VERSION_PRE"),
@@ -102,28 +104,41 @@ impl SystemInfo {
     }
 }
 
-/// Used by syscmd 1.
 impl Display for SystemInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        vga::clear();
+        // Write the first few fields
         write!(
             f,
             "System info
 Sunflower version: {}
 Debug build: {}
 CPU Vendor: {}
-Launch time:{}
-Uptime: {} ({}h {}m {}s)
+Launch time: ",
+            self.sunflower_version, self.debug, self.cpu_vendor,
+        )?;
+
+        // Write launch time
+        match time::LAUNCH_TIME.read() {
+            Ok(time) => writeln!(f, "{time}"),
+            Err(e) => writeln!(f, "Failed fetching time - {e}"),
+        }?;
+
+        // Write the rest of the fields
+        write!(
+            f,
+            "Uptime: {} ({}h {}m {}s)
+PIC initialised: {}
+PIT initialised: {}
+PS/2 Keyboard initialised: {}
 Disable enter: {}
 Waiting: {}",
-            self.sunflower_version,
-            self.debug,
-            self.cpu_vendor,
-            time::LAUNCH_TIME,
             self.time,
             self.time_secs / 3600,      // hours
             (self.time_secs / 60) % 60, // mins
             self.time_secs % 60,        // secs
+            startup::pic_init(),
+            startup::pit_init(),
+            startup::kbd_init(),
             self.disable_enter,
             self.waiting
         )

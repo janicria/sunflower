@@ -3,7 +3,7 @@ use crate::{
     ports::{self, Port},
     speaker, startup,
     sysinfo::SystemInfo,
-    vga::{self, CursorShift},
+    vga::{self, BUFFER_HEIGHT, CursorPos, CursorShift},
 };
 use core::{
     fmt::Display,
@@ -39,12 +39,15 @@ static SHIFT: AtomicU8 = AtomicU8::new(0);
 /// Whether SYSRQ is being held or not.
 static SYSRQ: AtomicBool = AtomicBool::new(false);
 
-/// Enables external interrupts, disables mouse, runs some tests,
-/// sets config, then sets the scancode and numlock LEDs.
+/// Disables mouse, runs some tests, sets config, then sets the scancode and numlock LEDs.
 pub fn init() -> Result<(), KbdInitError> {
     super::sti();
 
-    // Safety: kbd_handler returns immediately if !SYS_INIT, so this is the only use of ports 0x60 & 0x64.
+    if !startup::pic_init() {
+        return Err(KbdInitError::new("PIC is not initialised!!!"));
+    }
+
+    // Safety: This is the only use of ports 0x60 & 0x64, excluding unsafe functions
     let mut controller = unsafe { Controller::new() };
 
     // Disable devices
@@ -61,7 +64,7 @@ pub fn init() -> Result<(), KbdInitError> {
     // Config
     let mut cfg = ControllerConfigFlags::all();
     cfg.set(ControllerConfigFlags::DISABLE_KEYBOARD, false); // enable kbd
-    cfg.set(ControllerConfigFlags::ENABLE_MOUSE_INTERRUPT, false);
+    cfg.set(ControllerConfigFlags::ENABLE_MOUSE_INTERRUPT, false); // since we don't use the mouse
     cfg.set(ControllerConfigFlags::ENABLE_TRANSLATE, false); // so scancode set 2 is actually scancode set 2
     KbdInitError::map("Set config", controller.write_config(cfg))?;
 
@@ -74,25 +77,33 @@ pub fn init() -> Result<(), KbdInitError> {
     KbdInitError::map("Set LEDS", kbd.set_leds(KeyboardLedFlags::NUM_LOCK))?;
     KbdInitError::map("Reset keyboard", kbd.reset_and_self_test())?;
 
+    // Safety: We just initialised it above
+    unsafe { startup::KBD_INIT.store(true) }
+
     Ok(())
 }
 
 /// Error returned from `init`.
 pub struct KbdInitError {
-    cmd: &'static str,
-    err: KeyboardError,
+    msg: &'static str,
+    kbd_err: Option<KeyboardError>,
 }
 
 impl KbdInitError {
+    /// Returns a new error without the `kbd_err` field.
+    fn new(msg: &'static str) -> Self {
+        KbdInitError { msg, kbd_err: None }
+    }
+
     /// Maps a `Result<T, E>` to a `Result<(), Self>`
-    fn map<T, E>(cmd: &'static str, err: Result<T, E>) -> Result<(), Self>
+    fn map<T, E>(msg: &'static str, err: Result<T, E>) -> Result<(), Self>
     where
         E: Into<KeyboardError>,
     {
         match err {
             Err(err) => Err(KbdInitError {
-                cmd,
-                err: err.into(),
+                msg,
+                kbd_err: Some(err.into()),
             }),
             Ok(_) => Ok(()),
         }
@@ -101,7 +112,13 @@ impl KbdInitError {
 
 impl Display for KbdInitError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{} -  {:?}", self.cmd, self.err)
+        write!(f, "{}", self.msg)?;
+
+        if let Some(ref err) = self.kbd_err {
+            write!(f, " - {err:?}")?;
+        }
+
+        Ok(())
     }
 }
 
@@ -113,15 +130,16 @@ unsafe fn kbd_handler() {
     /// The last value read from port 0x60.
     static PREV_RESPONSE: AtomicU8 = AtomicU8::new(0);
 
-    if !startup::init() {
+    if !startup::kbd_init() {
         return;
     }
 
     // Prevent another IRQ handler from adding to the buffer at the same time.
     super::cli();
 
-    let ptr = KBD_WPTR.load(Ordering::Relaxed) as usize;
+    // Safety: The caller must ensure that it's safe to read from port 0x60
     let scancode = unsafe { ports::readb(Port::PS2Data) };
+    let ptr = KBD_WPTR.load(Ordering::Relaxed) as usize;
 
     // Save the scancode to the buffer
     KBD_WPTR.fetch_add(1, Ordering::Relaxed);
@@ -160,30 +178,43 @@ pub fn poll_keyboard() {
     let scancode = KBD_BUF[read_ptr as usize].load(Ordering::Relaxed);
     KBD_RPTR.fetch_add(1, Ordering::Relaxed);
 
-    // Handle shift and sys request
-    if scancode == LSHIFT_SCANCODE {
-        // Flip lshift bit
-        SHIFT.fetch_xor(1 << 0, Ordering::Relaxed);
-    } else if scancode == RSHIFT_SCANCODE {
-        // Flip rshift bit
-        SHIFT.fetch_xor(1 << 1, Ordering::Relaxed);
-    } else if scancode == SYSRQ_SCANCODE || scancode == SYSRQ_SCANCODE_ALT {
-        // Flip sysrq bit
-        SYSRQ.fetch_xor(true, Ordering::Relaxed);
-    }
-
     // If a key was pressed
     if let Ok(event) = kbd.add_byte(scancode)
         && let Some(ref event) = event
-        && event.state == KeyState::Down
-        && let Some(key) = kbd.process_keyevent(event.clone())
     {
-        let mods = kbd.get_modifiers();
-        system_command(event.code, mods);
+        // Handle shift and sys request pressed
+        // We can't just flip the bit if the key is pressed OR released above, as holding one of the keys 
+        // while launching QEMU (or any other VM I assume) causes the key  to be permanently stuck in the 
+        // opposite state, as sunflower sees a key is released, and sets the bit, when it should be cleared.
+        if event.state == KeyState::Down {
+            if scancode == LSHIFT_SCANCODE {
+                SHIFT.fetch_or(1 << 0, Ordering::Relaxed);
+            } else if scancode == RSHIFT_SCANCODE {
+                SHIFT.fetch_or(1 << 1, Ordering::Relaxed);
+            } else if scancode == SYSRQ_SCANCODE || scancode == SYSRQ_SCANCODE_ALT {
+                SYSRQ.store(true, Ordering::Relaxed);
+            }
+        }
 
-        match key {
-            DecodedKey::RawKey(key) => handle_arrows(key),
-            DecodedKey::Unicode(key) => print_key(key, mods),
+        // Handle shift and sys request released
+        if event.state == KeyState::Up {
+            if scancode == LSHIFT_SCANCODE {
+                SHIFT.fetch_and(!(1 << 0), Ordering::Relaxed);
+            } else if scancode == RSHIFT_SCANCODE {
+                SHIFT.fetch_and(!(1 << 1), Ordering::Relaxed);
+            } else if scancode == SYSRQ_SCANCODE || scancode == SYSRQ_SCANCODE_ALT {
+                SYSRQ.store(false, Ordering::Relaxed);
+            }
+        }
+
+        if let Some(key) = kbd.process_keyevent(event.clone()) {
+            let mods = kbd.get_modifiers();
+            system_command(event.code, mods);
+
+            match key {
+                DecodedKey::RawKey(key) => handle_arrows(key),
+                DecodedKey::Unicode(key) => print_key(key, mods),
+            }
         }
     }
 }
@@ -193,14 +224,29 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
     // If Ctrl + Alt or SysRq is held
     if (kbd.is_ctrl() && kbd.is_alt()) || SYSRQ.load(Ordering::Relaxed) {
         match key {
-            KeyCode::F1 => print!("{}", SystemInfo::now()),
+            KeyCode::F1 => print_sysinfo(),
             KeyCode::F2 => vga::clear(),
             KeyCode::F3 => speaker::play_special(600, 400, false, false),
             KeyCode::F4 => super::rbod::rbod(ErrorCode::SysCmd4, RbodErrInfo::None, None),
             KeyCode::F5 => super::triple_fault(),
+            KeyCode::F6 => vga::swap_buffers(),
             _ => (),
         }
     }
+}
+
+/// Used by syscmd 1 to print the system info.
+fn print_sysinfo() {
+    // Store prev buffer in alt
+    vga::swap_buffers();
+    vga::clear();
+
+    print!("{}", SystemInfo::now());
+
+    // Print message in bottom left
+    CursorPos::set_col(0);
+    CursorPos::set_row(BUFFER_HEIGHT - 1);
+    print!("Previous screen stored in alt buffer (Use SysCmd 6)")
 }
 
 /// Handles when an arrow key is pressed.

@@ -4,7 +4,7 @@ use crate::{
 };
 
 /// The bits required for the PC speaker to play sound through PIT channel 2.
-static PLAY_BITS: u8 = 3;
+static PLAY_BITS: u8 = 0b11;
 
 /// Plays a sound with the specified frequency to the pc speaker.
 ///
@@ -12,13 +12,14 @@ static PLAY_BITS: u8 = 3;
 /// when used with certain headphones and requires passing
 /// `-audio driver=<insert driver here>,model=virtio,id=speaker --machine pcspk-audiodev=speaker`
 pub fn play(freq: u32) {
-    if !startup::init() {
+    // todo: explain why the command is 0b10110110
+    static COMMAND: u8 = 0b10110110;
+
+    if !startup::pit_init() {
         return;
     }
 
     unsafe {
-        static COMMAND: u8 = 0b10110110;
-
         // Set the second channel in the PIT to freq
         let freq = time::PIT_BASE_FREQ as u32 / freq;
         ports::writeb(Port::PITCmd, COMMAND);
@@ -35,6 +36,7 @@ pub fn play(freq: u32) {
 
 /// Stops the current sound the pc speaker is playing.
 pub fn stop() {
+    // Safety: We're just disabling the play bits
     unsafe {
         // Disable the play bits
         let val = ports::readb(Port::Speaker) & !PLAY_BITS;

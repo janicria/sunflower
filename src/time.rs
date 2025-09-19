@@ -1,21 +1,17 @@
 use crate::{
+    wrappers::{InitError, InitLater},
     interrupts,
     ports::{self, Port},
     startup,
     vga::Corner,
 };
 use core::{
-    arch::asm,
+    arch::{asm, naked_asm},
     convert::Infallible,
     fmt::Display,
-    mem,
-    sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+    hint, ptr,
+    sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
 };
-
-/// How many ticks the kernel has been running for.
-/// Increases every 10 ms or 100 Hz.
-#[unsafe(no_mangle)]
-pub static mut TIME: u64 = 0;
 
 /// The base frequency of the PIT.
 pub static PIT_BASE_FREQ: u64 = 1193180;
@@ -24,13 +20,16 @@ pub static PIT_BASE_FREQ: u64 = 1193180;
 pub static WAITING: AtomicBool = AtomicBool::new(false);
 
 /// The time the kernel was launched.
-pub static LAUNCH_TIME: Time = unsafe { mem::zeroed() };
+pub static LAUNCH_TIME: InitLater<Time> = InitLater::uninit();
+
+/// Whether the time has been loaded into `LAUNCH_TIME` or not.
+static RTC_SYNC_DONE: AtomicBool = AtomicBool::new(false);
 
 /// CMOS register B.
 static CMOS_REG_B: u8 = 0x8B;
 
 /// Sets the timer interval in channel 0 to 10 ms.
-pub fn set_timer_interval() -> Result<(), Infallible> {
+pub fn set_timer_interval() -> Result<(), &'static str> {
     static MS_PER_TICK: u16 = 10;
     // divide by 1000 to convert from ms to seconds
     static TICK_INTERVAL: u16 = MS_PER_TICK * (PIT_BASE_FREQ / 1000) as u16;
@@ -40,13 +39,81 @@ pub fn set_timer_interval() -> Result<(), Infallible> {
     /// [Reference](https://wiki.osdev.org/Programmable_Interval_Timer#I/O_Ports)
     static COMMAND: u8 = 0b0_111_11_00;
 
+    if !startup::pic_init() {
+        return Err("PIC is not initialised!!!");
+    }
+
+    interrupts::sti();
+
+    // Safety: Sending valid command (see link above) 
+    // and can assume the PIT was initialised after sending them
     unsafe {
         ports::writeb(Port::PITCmd, COMMAND);
         ports::writeb(Port::PITChannel0, TICK_INTERVAL as u8); // low byte
         ports::writeb(Port::PITChannel0, (TICK_INTERVAL >> 8) as u8); // high byte
+
+        startup::PIT_INIT.store(true);
+    }
+    Ok(())
+}
+
+/// Returns how many ticks the kernel has been running for.
+/// Increases every 10 ms or 100 Hz.
+#[unsafe(naked)]
+pub extern "C" fn get_time() -> u64 {
+    /// The current time
+    #[unsafe(no_mangle)]
+    static mut TIME: u64 = 0;
+
+    // Safety: I'm pretty both the increment and loading of TIME are only one instruction each
+    naked_asm!("mov rax, [TIME]", "ret")
+}
+
+/// Toggles the waiting character on or off.
+fn set_waiting_char(show: bool) {
+    static PREV: AtomicU16 = AtomicU16::new(0);
+    static WAITING_CHAR: u16 = 1025;
+    let ptr = Corner::TopRight as usize as *mut u16;
+
+    let write_waiting_char = |char: u16| {
+        // Safety: TopRight is valid, aligned & won't do anything weird when written to
+        unsafe {
+            ptr::write_volatile(ptr, char);
+        }
+    };
+
+    if show {
+        // Safety: TopRight is valid, aligned & won't do anything weird when read from
+        let prev = unsafe { ptr::read_volatile(ptr) };
+        PREV.store(prev, Ordering::Relaxed);
+        write_waiting_char(WAITING_CHAR);
+    } else {
+        // ptr = PREV
+        let prev = PREV.load(Ordering::Relaxed);
+        write_waiting_char(prev);
+    }
+}
+
+/// Waits for `ticks` ticks (`ticks / 100` seconds).
+///
+/// Never returns if external interrupts are disabled.
+pub fn wait(ticks: u64) {
+    if !startup::pit_init() {
+        return;
     }
 
-    Ok(())
+    WAITING.store(true, Ordering::Relaxed);
+    set_waiting_char(true);
+
+    // wait...
+    let target_time = get_time() + ticks;
+    while get_time() < target_time {
+        // Safety: Just halting
+        unsafe { asm!("hlt") }
+    }
+
+    set_waiting_char(false);
+    WAITING.store(false, Ordering::Relaxed);
 }
 
 /// Waits for approximately `ticks` ticks (`ticks / 100` seconds).
@@ -65,11 +132,14 @@ pub fn wait_no_ints(ticks: u64) {
     /// How many ticks have passed since the function was called.
     static TIME: AtomicU64 = AtomicU64::new(0);
 
-    if !startup::init() {
+    if !startup::pit_init() {
         return;
     }
 
     let target = TIME.load(Ordering::Relaxed) + ticks;
+    set_waiting_char(true);
+
+    // FIXME: What the hell is this
     while TIME.load(Ordering::Relaxed) < target {
         unsafe {
             ports::writeb(Port::PITCmd, COMMAND);
@@ -80,58 +150,33 @@ pub fn wait_no_ints(ticks: u64) {
             }
         }
     }
-}
 
-/// Waits for `ticks` ticks (`ticks / 100` seconds).
-///
-/// Never returns if external interrupts are disabled.
-pub fn wait(ticks: u64) {
-    if !startup::init() {
-        return;
-    }
-
-    unsafe {
-        static RED_SMILEY: u16 = 1025;
-        WAITING.store(true, Ordering::Relaxed);
-
-        // set waiting char
-        let char = Corner::TopRight as usize as *mut u16;
-        let prev = *char;
-        *char = RED_SMILEY;
-
-        // wait...
-        let target_time = TIME + ticks;
-        while TIME < target_time {
-            asm!("hlt")
-        }
-
-        *char = prev;
-        WAITING.store(false, Ordering::Relaxed);
-    }
+    set_waiting_char(false);
 }
 
 /// Second-precise time value.
 pub struct Time {
-    year: AtomicU8,
-    month: AtomicU8,
-    day: AtomicU8,
-    hour: AtomicU8,
-    min: AtomicU8,
-    sec: AtomicU8,
+    year: u8,
+    month: u8,
+    day: u8,
+    hour: u8,
+    min: u8,
+    sec: u8,
 }
 
 impl Time {
     /// Returns the current time in the RTC.
     /// [`Reference`](https://wiki.osdev.org/CMOS#Getting_Current_Date_and_Time_from_RTC)
     fn now() -> Self {
+        // Safety: Reading from valid registers.
         unsafe {
             Time {
-                year: AtomicU8::new(read_cmos_reg(0x9)),
-                month: AtomicU8::new(read_cmos_reg(0x8)),
-                day: AtomicU8::new(read_cmos_reg(0x7)),
-                hour: AtomicU8::new(read_cmos_reg(0x4)),
-                min: AtomicU8::new(read_cmos_reg(0x2)),
-                sec: AtomicU8::new(read_cmos_reg(0x0)),
+                year: read_cmos_reg(0x9),
+                month: read_cmos_reg(0x8),
+                day: read_cmos_reg(0x7),
+                hour: read_cmos_reg(0x4),
+                min: read_cmos_reg(0x2),
+                sec: read_cmos_reg(0x0),
             }
         }
     }
@@ -142,12 +187,7 @@ impl Display for Time {
         write!(
             f,
             " {}:{}:{} {}/{}/{}",
-            self.hour.load(Ordering::Relaxed),
-            self.min.load(Ordering::Relaxed),
-            self.sec.load(Ordering::Relaxed),
-            self.day.load(Ordering::Relaxed),
-            self.month.load(Ordering::Relaxed),
-            self.year.load(Ordering::Relaxed),
+            self.hour, self.min, self.sec, self.day, self.month, self.year
         )
     }
 }
@@ -166,7 +206,8 @@ unsafe fn read_cmos_reg(reg: u8) -> u8 {
 pub fn setup_rtc_int() -> Result<(), Infallible> {
     interrupts::cli();
 
-    // Set bit 6 in register B.
+    // Set bit 6 in register B to enable interrupts.
+    // Safety: Sending a valid command w/o external interrupts enabled
     unsafe {
         let prev = read_cmos_reg(CMOS_REG_B);
         ports::writeb(Port::CMOSSelector, CMOS_REG_B);
@@ -177,25 +218,35 @@ pub fn setup_rtc_int() -> Result<(), Infallible> {
     Ok(())
 }
 
+/// Waits for the RTC sync to finish then checks if `LAUNCH_TIME` has been successfully loaded.
+pub fn wait_for_rtc_sync() -> Result<(), InitError<Time>> {
+    // Wait until the RTC has been loaded into LAUNCH_TIME
+    while !RTC_SYNC_DONE.load(Ordering::Relaxed) {
+        hint::spin_loop(); // better performance via pause instruction
+    }
+
+    LAUNCH_TIME.read().map(|_| ())
+}
+
 /// Ran by RTC handler when the update ended interrupt occurs.
 /// [`Reference`](https://wiki.osdev.org/CMOS#The_Real-Time_Clock)
 #[unsafe(no_mangle)]
 extern "C" fn sync_time_to_rtc() {
-    /// The 24 hour / AM PM flag in the hours value.
+    /// The 24 hour time / 12 hour time flag in the hours value.
     static TWENTY_FOUR_HR_FLAG: u8 = 0b10000000;
 
-    let time = Time::now();
+    let mut time = Time::now();
     let reg_b = unsafe { read_cmos_reg(CMOS_REG_B) };
-    let mut hour = time.hour.load(Ordering::Relaxed);
+    let mut hour = time.hour;
 
     // If BCD mode (bit 2 clear), convert values to binary using the formula
     // Binary = ((BCD / 16) * 10) + (BCD & 0xF)
     if reg_b != reg_b | 0b100 {
-        bcd_to_bin(&time.sec);
-        bcd_to_bin(&time.min);
-        bcd_to_bin(&time.day);
-        bcd_to_bin(&time.month);
-        bcd_to_bin(&time.year);
+        time.sec = bcd_to_bin(time.sec);
+        time.min = bcd_to_bin(time.min);
+        time.day = bcd_to_bin(time.day);
+        time.month = bcd_to_bin(time.month);
+        time.year = bcd_to_bin(time.year);
 
         // Preserve 24 hour flag
         hour = ((hour & 0x0F) + (((hour & 0x70) / 16) * 10)) | (hour & TWENTY_FOUR_HR_FLAG);
@@ -203,20 +254,15 @@ extern "C" fn sync_time_to_rtc() {
 
     // If 12 hour time (bit 1 clear and flag set)
     if (reg_b != reg_b | 0b10) && (hour == hour & TWENTY_FOUR_HR_FLAG) {
-        let hour = ((hour & 0x7F) + 12) % 24;
-        time.hour.store(hour, Ordering::Relaxed);
+        // Clear 24 / 12 hour flag and convert to 24 hour time
+        time.hour = ((hour & 0b1111111) + 12) % 24;
     }
 
-    // Store time
-    let relaxed = Ordering::Relaxed;
-    LAUNCH_TIME.year.store(time.year.load(relaxed), relaxed);
-    LAUNCH_TIME.month.store(time.month.load(relaxed), relaxed);
-    LAUNCH_TIME.day.store(time.day.load(relaxed), relaxed);
-    LAUNCH_TIME.min.store(time.min.load(relaxed), relaxed);
-    LAUNCH_TIME.sec.store(time.sec.load(relaxed), relaxed);
+    // Ignore possible error as wait_for_rtc_sync checks this later
+    _ = LAUNCH_TIME.init(time);
+    RTC_SYNC_DONE.store(true, Ordering::Relaxed);
 
-    fn bcd_to_bin(val: &AtomicU8) {
-        let bcd = val.load(Ordering::Relaxed);
-        val.store(((bcd / 16) * 10) + (bcd & 0xF), Ordering::Relaxed)
+    fn bcd_to_bin(bcd: u8) -> u8 {
+        ((bcd / 16) * 10) + (bcd & 0xF)
     }
 }

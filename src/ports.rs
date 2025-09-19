@@ -23,6 +23,7 @@ pub enum Port {
 /// # Safety
 /// Writes to I/O ports.
 pub unsafe fn writeb(port: Port, val: u8) {
+    // Safety: The caller must ensure that writing to this port is safe
     unsafe { asm!("out dx, al", in("dx") port as u16, in("al") val, ) }
 }
 
@@ -31,6 +32,7 @@ pub unsafe fn writeb(port: Port, val: u8) {
 /// Reads from I/O ports.
 pub unsafe fn readb(port: Port) -> u8 {
     let val;
+    // Safety: The caller must ensure that reading from this port is safe
     unsafe { asm!("in al, dx", out("al") val, in("dx") port as u16) }
     val
 }

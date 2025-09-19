@@ -1,4 +1,8 @@
-use core::{arch::asm, convert::Infallible, hint, mem};
+use crate::{
+    time, vga,
+    wrappers::{InitError, InitLater},
+};
+use core::{arch::asm, convert::Infallible, fmt::Display, hint};
 use idt::{IDTDescriptor, Idt};
 use keyboard::KbdInitError;
 
@@ -14,7 +18,7 @@ mod pic;
 /// Handles exceptions and panics.
 mod rbod;
 
-static mut IDT: Idt = Idt::invalid();
+static IDT: InitLater<Idt> = InitLater::uninit();
 
 /// The interrupt stack frame.
 #[derive(Debug, Default)]
@@ -28,25 +32,41 @@ struct IntStackFrame {
 }
 
 /// Loads the IDT.
-pub fn load_idt() -> Result<(), &'static str> {
-    /// IDT Descriptor stored from sidt.
-    #[unsafe(no_mangle)]
-    static mut STORED_IDT: IDTDescriptor = unsafe { mem::zeroed() };
+pub fn load_idt() -> Result<(), LoadIDTError> {
+    let idt = Idt::new();
+    // Safety: Using properly filled out IDT.
+    let loaded_idt = unsafe { idt.load() };
 
-    unsafe {
-        // Load idt
-        let idt = Idt::new();
-        let loaded_idt = idt.load();
-        IDT = Idt::new();
+    // Return Err if the load fails
+    if let Err(e) = IDT.init(Idt::new()) {
+        return Err(LoadIDTError::Load(e));
+    }
 
-        // Return Err if sidt (store IDT) != descriptor passed to lidt
-        asm!("sidt [STORED_IDT]", options(nostack));
-        if STORED_IDT != loaded_idt {
-            return Err("Stored IDT doesn't match loaded IDT");
-        }
+    let mut stored_idt = IDTDescriptor::default();
+    // Store loaded IDT into a local variable. Safety: We're just storing a value
+    unsafe { asm!("sidt [{}]", in(reg) (&mut stored_idt), options(nostack)) };
+
+    // Return Err if sidt (store IDT) != descriptor passed to lidt
+    if stored_idt != loaded_idt {
+        return Err(LoadIDTError::Store("Stored IDT doesn't match loaded IDT"));
     }
 
     Ok(())
+}
+
+/// The error returned from `load_idt`.
+pub enum LoadIDTError {
+    Load(InitError<Idt>),
+    Store(&'static str),
+}
+
+impl Display for LoadIDTError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LoadIDTError::Load(e) => write!(f, "Failed loading IDT - {e}"),
+            LoadIDTError::Store(e) => write!(f, "{e}"),
+        }
+    }
 }
 
 /// Initialises the PIC.
@@ -65,6 +85,11 @@ pub fn kbd_poll_loop() -> ! {
     loop {
         hint::spin_loop(); // pause instruction
         keyboard::poll_keyboard();
+
+        // Update the cursor every 100 ms
+        if time::get_time().is_multiple_of(10) {
+            vga::update_vga_cursor();
+        }
     }
 }
 
@@ -81,6 +106,7 @@ pub fn cli() {
 /// Causes a triple fault.
 /// Can be used as the stupidest way ever to restart the device.
 fn triple_fault() {
+    // Safety: We're deliberately being very unsafe here
     unsafe {
         Idt::invalid().load(); // nuke IDT
         asm!("int 99"); //  gpf -> double fault -> triple fault

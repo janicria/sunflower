@@ -19,7 +19,7 @@ pub static mut ERR_CODE: ErrorCode = ErrorCode::Invalid;
 pub struct Idt([InterruptDescriptor; 256]);
 
 /// The value used by the lidt instruction load the IDT.
-#[derive(PartialEq)]
+#[derive(PartialEq, Default)]
 #[repr(C, packed)]
 pub struct IDTDescriptor {
     size: u16,
@@ -267,8 +267,8 @@ extern "x86-interrupt" fn double_fault_handler(frame: IntStackFrame, _err_code: 
 extern "C" fn timer_handler() -> ! {
     naked_asm!(
         pushregs!(),
-        "inc qword ptr [TIME]", // increase time
-        "mov rdi, 32",          // timer eoi
+        "lock inc qword ptr [TIME]", // increase time
+        "mov rdi, 32",               // timer eoi
         "call eoi",
         popregs!(),
         "iretq",
@@ -280,7 +280,7 @@ extern "C" fn timer_handler() -> ! {
 extern "C" fn key_pressed_wrapper() -> ! {
     naked_asm!(
         pushregs!(),
-        "call kbd_handler", // in keyboard.rs
+        "call kbd_handler", // Safety: it's safe to read from port 0x60 in the key pressed interrupt
         "mov rdi, 33",      // key pressed eoi
         "call eoi",         // send eoi command
         popregs!(),

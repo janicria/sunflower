@@ -1,8 +1,12 @@
-use crate::ports::{self, Port};
+use crate::{
+    ports::{self, Port},
+    wrappers::UnsafeFlag,
+};
 use core::{
     convert::Infallible,
     fmt::{self, Write},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    ptr,
+    sync::atomic::{AtomicU8, Ordering},
 };
 
 /// The color palette used by `VGAChar`
@@ -34,17 +38,22 @@ pub enum Color {
 pub struct VGAChar(u16);
 
 impl VGAChar {
+    /// The space character.
+    const SPACE: VGAChar = VGAChar::new(0x20, Color::White, Color::Black);
+
     /// Constructs a new color using `fg` as the text color and `bg` as the background color.
     pub const fn new(char: u8, fg: Color, bg: Color) -> VGAChar {
         VGAChar((char as u16) | (bg as u16) << 12 | (fg as u16) << 8)
     }
 }
 
-pub const BUFFER_WIDTH: usize = 80;
-pub const BUFFER_HEIGHT: usize = 25;
-const SPACE: VGAChar = VGAChar::new(0, Color::White, Color::Black);
+/// The width of the VGA text buf, in chars.
+pub const BUFFER_WIDTH: u8 = 80;
 
-pub type RawBuffer = [[VGAChar; BUFFER_WIDTH]; BUFFER_HEIGHT];
+/// The height of the VGA text buf, in chars.
+pub const BUFFER_HEIGHT: u8 = 25;
+
+pub type RawBuffer = [[VGAChar; BUFFER_WIDTH as usize]; BUFFER_HEIGHT as usize];
 
 /// Allows yoinking the VGA text buffer for your nefarious purposes.
 ///
@@ -56,10 +65,13 @@ impl YoinkedBuffer {
     ///
     /// Fails if the buffer is being used somewhere else.
     fn try_yoink() -> Option<Self> {
-        if !BUFFER_HELD.load(Ordering::Relaxed) {
-            BUFFER_HELD.store(true, Ordering::Relaxed);
-            // SAFETY: The check above ensures that there will probably only be one copy of BUFFER
-            unsafe { Some(Self(BUFFER)) }
+        if !BUFFER_HELD.load() {
+            // Safety: BUFFER_HELD is private to YoinkedBuffer, and the
+            // check above ensures that there'll probably be only one copy of BUFFER
+            unsafe {
+                BUFFER_HELD.store(true);
+                Some(Self(BUFFER))
+            }
         } else {
             None
         }
@@ -72,13 +84,16 @@ impl YoinkedBuffer {
 
     /// Returns a new empty buffer.
     pub const fn empty_buffer() -> RawBuffer {
-        [[VGAChar::new(0, Color::Black, Color::Black); BUFFER_WIDTH]; BUFFER_HEIGHT]
+        [[VGAChar::SPACE; BUFFER_WIDTH as usize]; BUFFER_HEIGHT as usize]
     }
 }
 
 impl Drop for YoinkedBuffer {
     fn drop(&mut self) {
-        BUFFER_HELD.store(false, Ordering::Relaxed);
+        // Safety: BUFFER_HELD is private to YoinkedBuffer
+        unsafe {
+            BUFFER_HELD.store(false);
+        }
     }
 }
 
@@ -90,18 +105,23 @@ impl Drop for YoinkedBuffer {
 pub static mut BUFFER: &mut RawBuffer = &mut YoinkedBuffer::empty_buffer();
 
 /// If the buffer is currently being held.
-static BUFFER_HELD: AtomicBool = AtomicBool::new(false);
+/// # Flag
+/// YoinkedBuffer will assume it has complete access to `BUFFER` when this static is cleared.
+pub static BUFFER_HELD: UnsafeFlag = UnsafeFlag::new(false);
 
 /// The VGA's current cursor info.
-pub static CURSOR: CursorPos = CursorPos {
-    column: AtomicUsize::new(0),
-    row: AtomicUsize::new(0),
+///
+/// Access this static via the `CursorPos` associated functions,
+/// though nothing bad will happen if you access this directly.
+static CURSOR: CursorPos = CursorPos {
+    column: AtomicU8::new(0),
+    row: AtomicU8::new(0),
 };
 
 /// Stores information about the VGA cursor.
 pub struct CursorPos {
-    pub column: AtomicUsize,
-    pub row: AtomicUsize,
+    pub column: AtomicU8,
+    pub row: AtomicU8,
 }
 
 /// A direction which can cursor can be shifted using `shift_cursor`
@@ -110,25 +130,6 @@ pub enum CursorShift {
     Right,
     Up,
     Down,
-}
-
-impl CursorPos {
-    /// Returns the row and column fields of the static.
-    fn row_col() -> (usize, usize) {
-        let row = CURSOR.row.load(Ordering::Relaxed);
-        let col = CURSOR.column.load(Ordering::Relaxed);
-        (row, col)
-    }
-}
-
-/// The memory addresses to the four corners of the VGA text buffer.
-#[derive(PartialEq, Clone, Copy)]
-#[repr(usize)]
-pub enum Corner {
-    TopLeft = 0xb8000,
-    TopRight = 0xb809e,
-    BottomLeft = 0xb8efe,
-    BottomRight = 0xb903e,
 }
 
 /// Prints to the vga text buffer.
@@ -142,6 +143,55 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)+) => ($crate::print!("{}\n", format_args!($($arg)+)));
+}
+
+impl CursorPos {
+    /// Returns the row and column fields of the static.
+    fn row_col() -> (u8, u8) {
+        let row = CURSOR.row.load(Ordering::Relaxed);
+        let col = CURSOR.column.load(Ordering::Relaxed);
+        (row, col)
+    }
+
+    /// Sets the row field in the static to `row`.
+    pub fn set_row(row: u8) {
+        CURSOR.row.store(row, Ordering::Relaxed);
+        Self::clamp_row_col();
+    }
+
+    /// Sets th column field in the static to `col`.
+    pub fn set_col(col: u8) {
+        CURSOR.column.store(col, Ordering::Relaxed);
+        Self::clamp_row_col();
+    }
+
+    /// Forces the row and column of the static to contain valid values.
+    fn clamp_row_col() {
+        let (row, col) = Self::row_col();
+
+        // Clamp row
+        if row >= BUFFER_HEIGHT {
+            println!("VGA cursor row contains invalid value of {row}! Clamping...");
+            CURSOR.row.store(BUFFER_HEIGHT - 1, Ordering::Relaxed);
+        }
+
+        // Clamp column
+        if col >= BUFFER_WIDTH {
+            println!("VGA cursor column contains invalid value of {row}! Clamping...");
+            let max = BUFFER_WIDTH - 1;
+            CURSOR.column.store(max, Ordering::Relaxed);
+        }
+    }
+}
+
+/// The memory addresses to the four corners of the VGA text buffer.
+#[derive(PartialEq, Clone, Copy)]
+#[repr(usize)]
+pub enum Corner {
+    TopLeft = 0xb8000,
+    TopRight = 0xb809e,
+    BottomLeft = 0xb8efe,
+    BottomRight = 0xb903e,
 }
 
 /// Used by `_print` to write call `print_color`.
@@ -175,17 +225,17 @@ pub fn write_char(byte: u8, fg: Color, bg: Color) {
             let newline = col >= BUFFER_WIDTH - 1;
 
             // Allow text to wrap around screen
-            if col >= BUFFER_WIDTH - 1 {
+            if newline {
                 self::newline();
             }
 
             // Print character
             if let Some(mut buf) = YoinkedBuffer::try_yoink() {
-                buf.buffer()[row][col] = VGAChar::new(byte, fg, bg);
+                buf.buffer()[row as usize][col as usize] = VGAChar::new(byte, fg, bg);
 
-                // Newline sets column to 0, so increasing it here would make a random gap appear
+                // Increase column if not newline
                 if !newline {
-                    CURSOR.column.fetch_add(1, Ordering::Relaxed);
+                    CursorPos::set_col(col + 1);
                 }
             }
         }
@@ -195,21 +245,22 @@ pub fn write_char(byte: u8, fg: Color, bg: Color) {
 /// Prints a newline.
 fn newline() {
     if let Some(mut buf) = YoinkedBuffer::try_yoink() {
-        CURSOR.column.store(0, Ordering::Relaxed);
+        let (row, _) = CursorPos::row_col();
+        CursorPos::set_col(0);
         let buf = buf.buffer();
 
         // If we've reached the end move all rows up one and clear the last row
-        if CURSOR.row.load(Ordering::Relaxed) >= BUFFER_HEIGHT - 1 {
+        if row >= BUFFER_HEIGHT - 1 {
             for row in 1..BUFFER_HEIGHT {
-                buf[row - 1] = buf[row]
+                buf[row as usize - 1] = buf[row as usize]
             }
 
             // clear last row
             for col in 0..BUFFER_WIDTH {
-                buf[BUFFER_HEIGHT - 1][col] = SPACE
+                buf[BUFFER_HEIGHT as usize - 1][col as usize] = VGAChar::SPACE
             }
         } else {
-            CURSOR.row.fetch_add(1, Ordering::Acquire);
+            CursorPos::set_row(row + 1);
         }
     }
 }
@@ -217,8 +268,10 @@ fn newline() {
 /// Updates the position of the vga cursor based on the `CURSOR` static.
 pub fn update_vga_cursor() {
     let (row, col) = CursorPos::row_col();
-    let pos = row * BUFFER_WIDTH + col;
+    let pos = row as u16 * BUFFER_WIDTH as u16 + col as u16;
+    CursorPos::clamp_row_col();
 
+    // Safety: The cursor is forced into valid values in the line above
     unsafe {
         // tell vga we're going to be giving it the first byte of the pos
         ports::writeb(Port::VGAIndexRegister0x3D4, 0x0E);
@@ -226,7 +279,7 @@ pub fn update_vga_cursor() {
 
         // then that we're giving it the second byte
         ports::writeb(Port::VGAIndexRegister0x3D4, 0x0F);
-        ports::writeb(Port::VgaCursorPos, (pos & 0xFF) as u8);
+        ports::writeb(Port::VgaCursorPos, pos as u8);
     }
 }
 
@@ -237,12 +290,12 @@ pub fn delete_prev_char() {
         let (row, col) = CursorPos::row_col();
 
         if col == 0 {
-            buf.buffer()[row - 1][BUFFER_WIDTH - 1] = SPACE;
+            buf.buffer()[row as usize - 1][BUFFER_WIDTH as usize - 1] = VGAChar::SPACE;
             drop(buf);
             shift_cursor(CursorShift::Left);
             shift_cursor(CursorShift::Up);
         } else {
-            buf.buffer()[row][col - 1] = SPACE;
+            buf.buffer()[row as usize][col as usize - 1] = VGAChar::SPACE;
             drop(buf);
             shift_cursor(CursorShift::Left);
         }
@@ -256,44 +309,64 @@ pub fn shift_cursor(direction: CursorShift) {
     match direction {
         CursorShift::Left => {
             if col == 0 {
-                CURSOR.column.store(BUFFER_WIDTH - 1, Ordering::Relaxed)
+                CursorPos::set_col(BUFFER_WIDTH - 1);
             } else {
-                CURSOR.column.fetch_sub(1, Ordering::Relaxed);
+                CursorPos::set_col(col - 1)
             }
         }
         CursorShift::Right => {
             if col < BUFFER_WIDTH - 1 {
-                CURSOR.column.fetch_add(1, Ordering::Relaxed);
+                CursorPos::set_col(col + 1);
             } else {
-                CURSOR.column.store(0, Ordering::Relaxed)
+                CursorPos::set_col(0);
             }
         }
         CursorShift::Up => {
             if row == 0 {
-                CURSOR.row.store(BUFFER_HEIGHT - 1, Ordering::Relaxed);
+                CursorPos::set_row(BUFFER_HEIGHT - 1);
             } else {
-                CURSOR.row.fetch_sub(1, Ordering::Relaxed);
+                CursorPos::set_row(row - 1)
             }
         }
         CursorShift::Down => {
             if row < BUFFER_HEIGHT - 1 {
-                CURSOR.row.fetch_add(1, Ordering::Relaxed);
+                CursorPos::set_row(row + 1)
             } else {
-                CURSOR.row.store(0, Ordering::Relaxed);
+                CursorPos::set_row(0)
             }
         }
     };
-
-    update_vga_cursor();
 }
 
 /// Fills the VGA text buffer with spaces and resets the cursor position.
 pub fn clear() {
-    unsafe {
-        *BUFFER = [[SPACE; BUFFER_WIDTH]; BUFFER_HEIGHT];
-        CURSOR.column.store(0, Ordering::Relaxed);
-        CURSOR.row.store(0, Ordering::Relaxed);
-        update_vga_cursor();
+    CursorPos::set_col(0);
+    CursorPos::set_row(0);
+    update_vga_cursor();
+
+    // Clear the buffer
+    if let Some(mut buf) = YoinkedBuffer::try_yoink() {
+        *buf.buffer() = [[VGAChar::SPACE; BUFFER_WIDTH as usize]; BUFFER_HEIGHT as usize]
+    }
+}
+
+/// Swaps between the two buffers if the current one isn't currently being used.
+pub fn swap_buffers() {
+    /// Where the unused buffer is stored.
+    static mut ALT_BUF: RawBuffer = YoinkedBuffer::empty_buffer();
+
+    /// Have to use a static since we don't want to store a 4kb buffer on the stack.
+    /// This is also why we can't just use ptr::swap
+    static mut TMP: RawBuffer = YoinkedBuffer::empty_buffer();
+
+    if YoinkedBuffer::try_yoink().is_some() {
+        // Safety: We know we can write to BUFFER (see check above)
+        // and both BUFFER, ALT_BUF & TMP are well aligned & valid
+        unsafe {
+            ptr::write_volatile(&raw mut TMP, ALT_BUF);
+            ptr::write_volatile(&raw mut ALT_BUF, *BUFFER);
+            ptr::write_volatile(BUFFER, TMP);
+        }
     }
 }
 
@@ -306,10 +379,10 @@ pub fn init() -> Result<(), Infallible> {
     unsafe {
         let buf = &raw mut BUFFER;
         *buf = &mut *(Corner::TopLeft as usize as *mut RawBuffer);
-        clear();
     }
 
     // Print welcome message
+    clear();
     print!("Hello, ");
     print_color("Sunflower!\n\n", Color::LightCyan);
     Ok(())

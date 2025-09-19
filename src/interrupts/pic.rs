@@ -1,4 +1,4 @@
-use crate::ports::{Port, writeb};
+use crate::{ports::{writeb, Port}, startup};
 
 /// Sends the EOI command to the PIC.
 #[unsafe(no_mangle)]
@@ -48,6 +48,8 @@ pub fn init() {
         // Unmask
         writeb(Port::MainPicData, 0);
         writeb(Port::SecondaryPicData, 0);
+
+        startup::PIC_INIT.store(true);
     };
 }
 

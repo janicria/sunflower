@@ -61,6 +61,7 @@ Ctrl+Alt+F2 / SysRq+F2 - Clears the screen
 Ctrl+Alt+F3 / SysRq+F3 - Beeps loudly
 Ctrl+Alt+F4 / SysRq+F4 - Crashes sunflower via rbod
 Ctrl+Alt+F5 / SysRq+F5 - Restarts the device
+Ctrl+Alt+F6 / SysRq+F6 - Swap between text buffers
 ```
 
 ## Screenshots
