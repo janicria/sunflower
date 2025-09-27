@@ -2,7 +2,7 @@
 #![no_main]
 #![allow(clippy::unusual_byte_groupings, clippy::deref_addrof)]
 #![forbid(static_mut_refs)]
-#![feature(abi_x86_interrupt, sync_unsafe_cell)]
+#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr)]
 
 /// Allows writing to the VGA text buffer
 #[macro_use]
@@ -11,7 +11,7 @@ mod vga;
 /// Handles the InitLater and UnsafeFlag wrappers.
 mod wrappers;
 
-/// Handles loading a new GDT
+/// Handles loading a new TSS & GDT.
 mod gdt;
 
 /// Handles various interrupts
@@ -46,8 +46,10 @@ and use clippy via `cargo paperclip`"
 #[unsafe(export_name = "_start")]
 pub unsafe extern "C" fn kmain() -> ! {
     startup::run("Connected VGA", vga::init);
-    startup::run("Loaded GDT", gdt::load_gdt);
     startup::run("Loaded IDT", interrupts::load_idt);
+    startup::run("Prepared TSS load", gdt::setup_tss);
+    startup::run("Loaded GDT", gdt::load_gdt);
+    startup::run("Finished TSS load", gdt::load_tss);
     startup::run("Initialised PIC", interrupts::init_pic);
     startup::run("Prepared RTC sync", time::setup_rtc_int);
     startup::run("Set PIT frequency", time::set_timer_interval);

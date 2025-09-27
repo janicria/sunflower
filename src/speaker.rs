@@ -16,6 +16,7 @@ pub fn play(freq: u32) {
     static COMMAND: u8 = 0b10110110;
 
     if !startup::pit_init() {
+        warn!("attempted playing sounds with an uninit PIT!");
         return;
     }
 
@@ -57,6 +58,11 @@ pub fn play_special(freq: u32, millis: u64, repeat: bool, no_ints: bool) {
         // Convert millis to ticks
         (time::wait as fn(u64), millis / 10)
     };
+
+    if !startup::pit_init() {
+        warn!("attempted playing special with an uninit PIT!");
+        return;
+    }
 
     if repeat {
         static PULSE_LENGTH: u64 = 10;

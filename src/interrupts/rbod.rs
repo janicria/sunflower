@@ -3,7 +3,7 @@ use crate::{
     ports::{self, Port},
     speaker,
     sysinfo::SystemInfo,
-    time,
+    time::{self, Time},
     vga::{self, BUFFER_HEIGHT, BUFFER_WIDTH, Color, Corner, VGAChar, YoinkedBuffer},
 };
 use core::{
@@ -96,10 +96,7 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     // Print either the exception, panic or syscmd info
     match info {
         RbodErrInfo::Exception(frame) => {
-            println!(
-                "  Location: {:x}   Flags: {}   Code segment: {}\n  Stack pointer: {}   Stack segment: {} <- Should be zero",
-                frame.ip, frame.flags, frame.cs, frame.sp, frame.ss
-            )
+            println!("{frame}")
         }
         RbodErrInfo::Panic(info) => {
             println!(
@@ -121,18 +118,18 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
         println!("                          Not present for this error\n\n")
     }
 
-    // Print the kernel info
+    // Print some system info
     let sysinfo = SystemInfo::now();
     println!(
             "                                  SYSTEM INFO\n  Kernel: {}   CPU Vendor: {}   Debug: {}   
-  Uptime: {}   Small errors: {}   Big errors: {}   Waiting: {}",
+  Date: {}   Uptime: {}   Small errors: {}   Big errors: {}",
             sysinfo.sfk_version_long,
             sysinfo.cpu_vendor,
             sysinfo.debug,
+            sysinfo.date.unwrap_or(&Time::default()),
             sysinfo.time,
             SMALL_ERRS.load(Ordering::Relaxed),
             BIG_ERRS.load(Ordering::Relaxed),
-            sysinfo.waiting
         );
 
     // Print the key press options

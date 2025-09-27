@@ -1,14 +1,20 @@
-use crate::{startup, time};
+use crate::{
+    gdt::{self, Gdt},
+    interrupts::{self, Idt},
+    startup,
+    time::{self, Time},
+    wrappers::{InitError, TableDescriptor},
+};
 use core::{arch::asm, fmt::Display, sync::atomic::Ordering};
 
 /// The current version of the sunflower kernel.
-static VERSION_LONG: &str = "SFK-00-Development-04";
+static VERSION_LONG: &str = "SFK-00-Development-05";
 
 /// A shortened version of sunflower.
-static VERSION_SHORT: &str = "SFK-Dev-04";
+static VERSION_SHORT: &str = "SFK-Dev-05";
 
 /// Message updated each patch.
-static PATCH_QUOTE: &str = "Have fun!  ";
+static PATCH_QUOTE: &str = "Sunflowers!";
 
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]
@@ -85,13 +91,30 @@ fn get_cpuid() -> Option<&'static str> {
 
 /// Information about the system.
 pub struct SystemInfo {
+    // Sunflower version
     pub sfk_version_long: &'static str,
     pub sfk_version_short: &'static str,
     pub patch_quote: &'static str,
+
+    // Actually important info
     pub cpu_vendor: &'static str,
     pub debug: bool,
+
+    // Time
     pub time: u64,
     pub time_secs: u64,
+    pub date: Result<&'static Time, InitError<Time>>,
+
+    // Descriptors and such
+    pub gdt_init: bool,
+    pub gdt_descriptor: TableDescriptor<Gdt>,
+    pub idt_init: bool,
+    pub idt_descriptor: TableDescriptor<Idt>,
+
+    // Misc flags
+    pub pic_init: bool,
+    pub pit_init: bool,
+    pub kbd_init: bool,
     pub disable_enter: bool,
     pub waiting: bool,
 }
@@ -105,52 +128,111 @@ impl SystemInfo {
             sfk_version_long: VERSION_LONG,
             sfk_version_short: VERSION_SHORT,
             patch_quote: PATCH_QUOTE,
+
             cpu_vendor: get_cpuid().unwrap_or("Unknown"),
-            debug: cfg!(debug_assertions), // compile error in main.rs should prevent this
+            debug: cfg!(feature = "debug_info"),
+
             time,
             time_secs: time / 100,
-            disable_enter: cfg!(feature = "disable_enter"),
+            date: time::LAUNCH_TIME.read(),
+
+            gdt_init: gdt::GDT.read().is_ok(),
+            gdt_descriptor: gdt::gdt_register(),
+            idt_init: interrupts::IDT.read().is_ok(),
+            idt_descriptor: interrupts::idt_register(),
+
             waiting: time::WAITING.load(Ordering::Relaxed),
+            disable_enter: cfg!(feature = "disable_enter"),
+            pic_init: startup::pic_init(),
+            pit_init: startup::pit_init(),
+            kbd_init: startup::kbd_init(),
         }
     }
 }
 
 impl Display for SystemInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        /// Returns the value in register `reg`.
+        macro_rules! reg {
+    ($name: ident) => {{
+        let reg: u64;
+        // Safety: Just copying over a register
+        unsafe { core::arch::asm!(concat!("mov {}, ", stringify!($name)), out(reg) reg, options(preserves_flags, nostack)) }
+        reg
+     }};
+}
+
         // Write the first few fields
         write!(
             f,
             "Sunflower version: {}
-Debug build: {}
 CPU Vendor: {}
+Debug build: {}
 Launch time: ",
-            self.sfk_version_long, self.debug, self.cpu_vendor,
+            self.sfk_version_long, self.cpu_vendor, self.debug,
         )?;
 
         // Write launch time
-        match time::LAUNCH_TIME.read() {
+        match self.date {
             Ok(time) => writeln!(f, "{time}"),
-            Err(e) => writeln!(f, "Failed fetching time - {e}"),
+            Err(ref e) => writeln!(f, "Failed fetching time - {e}"),
         }?;
 
         // Write the rest of the fields
         write!(
             f,
             "Uptime: {} ({}h {}m {}s)
+Disable enter: {}
+Waiting: {}
+GDT init: {} with {}
+IDT init: {} with {}
 PIC initialised: {}
 PIT initialised: {}
-PS/2 Keyboard initialised: {}
-Disable enter: {}
-Waiting: {}",
+KBD initialised: {}\n",
             self.time,
             self.time_secs / 3600,      // hours
             (self.time_secs / 60) % 60, // mins
             self.time_secs % 60,        // secs
-            startup::pic_init(),
-            startup::pit_init(),
-            startup::kbd_init(),
             self.disable_enter,
-            self.waiting
+            self.waiting,
+            self.gdt_init,
+            self.gdt_descriptor,
+            self.idt_init,
+            self.idt_descriptor,
+            self.pic_init,
+            self.pit_init,
+            self.kbd_init,
+        )?;
+
+        // Write registers
+        write!(
+            f,
+            "\nRegisters
+RAX={:x} RBX={:x} RCX={:x} RDX={:x}
+RSP={:x} RSI={:x} RDI={:x} RBP={:x}
+R8 ={:x} R9 ={:x} R10={:x} R11={:x} 
+R12={:x} R13={:x} R14={:x} R15={:x} 
+CS={:x} DS={:x} ES={:x} DS={:x}",
+            reg!(rax),
+            reg!(rbx),
+            reg!(rcx),
+            reg!(rdx),
+            reg!(rsp),
+            reg!(rsi),
+            reg!(rdi),
+            reg!(rsi),
+            reg!(rbp),
+            reg!(r8),
+            reg!(r9),
+            reg!(r10),
+            reg!(r11),
+            reg!(r13),
+            reg!(r14),
+            reg!(r15),
+            reg!(cs),
+            reg!(ds),
+            reg!(es),
+            reg!(ds)
         )
     }
 }

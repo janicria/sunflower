@@ -1,7 +1,22 @@
 # Sunflower changelog
 
+## Development 05
+##### TSS, debug macros & better double faults 27/9/25
+
+- Added a much needed TSS to prevent stack overflows from triple faulting
+- Made an actually responsible double fault handler that doesn't just call rbod
+- Added the `cargo run_debug` command for easier debugging (and also `dbg_info!` and `warn!` macros)
+- Fixed some typos in SysCmd 7
+- Improved the system info section in rbod and SysCmd 1
+- Renamed `LoadDescriptorError`to `LoadRegisterError` since the TSS now uses it
+- Prevented `vga::swap_buffers` from accidentally still using the stack, causing stack overflows when called
+- Enabled the very import `yeet_expr` feature 
+- Fixed some rare cases where the Topbar would be hidden
+- Updated rust version to accommodate for `target-pointer-width` becoming an integer in `bootloader`
+
 ## Development 04
 ##### GDT & Topbar 20/9/25
+
 - Sunflower now loads it's own GDT!!
 - Added the topbar & help syscmd (SysCmd 7)
 - Added the `LoadDescriptorError` wrapper for easier IDT & GDT errors

@@ -174,6 +174,26 @@ macro_rules! println {
     ($($arg:tt)+) => ($crate::print!("{}\n", format_args!($($arg)+)));
 }
 
+/// Prints to the vga text buffer if the `debug_info` feature is enabled.
+#[macro_export]
+macro_rules! dbg_info {
+    ($($arg:tt)+) => {{
+        #[cfg(feature = "debug_info")]
+        $crate::println!(fg = Grey, "debug: {}", format_args!($($arg)+))
+    }};
+}
+
+/// Prints to the vga text buffer if the `debug_info` feature is enabled.
+#[macro_export]
+macro_rules! warn {
+    ($($arg:tt)+) => {
+    #[cfg(feature = "debug_info")]
+    {
+        $crate::print!(fg = LightRed, "warning: ");
+        $crate::println!(fg = Grey, $($arg)+)
+    }};
+}
+
 impl CursorPos {
     /// Returns the row and column fields of the static.
     fn row_col() -> (u8, u8) {
@@ -277,10 +297,10 @@ fn newline() {
         CursorPos::set_col(0);
         let buf = buf.buffer();
 
-        // If we've reached the end move all rows up one and clear the last row
+        // If we've reached the end, move all rows (except topbar) up one and clear the last row
         if row >= BUFFER_HEIGHT - 1 {
-            for row in 1..BUFFER_HEIGHT {
-                buf[row as usize - 1] = buf[row as usize]
+            for row in 1..BUFFER_HEIGHT as usize - 1 {
+                buf[row] = buf[row + 1]
             }
 
             // Clear the last row
@@ -293,7 +313,7 @@ fn newline() {
     }
 }
 
-/// Updates the position of the vga cursor based on the `CURSOR` static.
+/// Updates the visual position of the vga cursor on the screen using `CursorPos`.
 pub fn update_vga_cursor() {
     CursorPos::clamp_row_col();
     let (row, col) = CursorPos::row_col();
@@ -379,6 +399,7 @@ pub fn clear() {
 }
 
 /// Swaps between the two buffers if the current one isn't currently being used.
+#[allow(clippy::redundant_pattern_matching)]
 pub fn swap_buffers() {
     /// Where the unused buffer is stored.
     static mut ALT_BUF: RawBuffer = YoinkedBuffer::empty_buffer();
@@ -387,15 +408,18 @@ pub fn swap_buffers() {
     /// This is also why we can't just use ptr::swap
     static mut TMP: RawBuffer = YoinkedBuffer::empty_buffer();
 
-    if YoinkedBuffer::try_yoink().is_some() {
-        // Safety: We know we can write to BUFFER (see check above)
-        // and both BUFFER, ALT_BUF & TMP are well aligned & valid
+    if let Some(_) = YoinkedBuffer::try_yoink() {
+        // Safety: We can safely write to BUFFER as it'll stay yoinked
+        // until dropped, all of the statics are well aligned & valid
+        // and since they're statics, they shouldn't overlap in any way
         unsafe {
-            ptr::write_volatile(&raw mut TMP, ALT_BUF);
-            ptr::write_volatile(&raw mut ALT_BUF, *BUFFER);
-            ptr::write_volatile(BUFFER, TMP);
+            ptr::copy_nonoverlapping(&raw const ALT_BUF, &raw mut TMP, 1);
+            ptr::copy_nonoverlapping(BUFFER, &raw mut ALT_BUF, 1);
+            ptr::copy_nonoverlapping(&raw const TMP, BUFFER, 1);
         }
     }
+
+    draw_topbar(" Alt Buf ");
 }
 
 /// Connects the `BUFFER` static to the vga text buffer.
@@ -417,10 +441,19 @@ pub fn init() -> Result<(), Infallible> {
 }
 
 /// Draws the topbar with `title` as it's title.
-/// Title must be exactly 9 characters long.
+/// Title must be exactly 9 bytes long.
 pub fn draw_topbar(title: &'static str) {
-    // Print at the top left corner
     interrupts::cli();
+
+    // Force title to be nine bytes
+    if title.len() != 9 {
+        warn!(
+            "attempted setting topbar title with a len that != 9, it will be truncated or discarded to preserve formatting!"
+        );
+    }
+    let title = title.split_at_checked(9).unwrap_or(("Bad Title", "")).0;
+
+    // Print at the top left corner
     let (prev_row, prev_col) = CursorPos::row_col();
     ALLOW_ROW_0.store(true, Ordering::Relaxed);
     CursorPos::set_row(0);

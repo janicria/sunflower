@@ -4,6 +4,7 @@ use core::{
     fmt::Display,
     marker::PhantomData,
     mem::MaybeUninit,
+    ptr,
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
@@ -37,16 +38,17 @@ impl<T> InitLater<T> {
     }
 
     /// Tries to initialise the value.
-    pub fn init(&self, val: T) -> Result<(), InitError<T>> {
+    /// Returns the loaded `val` for your convenience
+    pub fn init(&self, val: T) -> Result<&'static T, InitError<T>> {
         let state = self.state.load(Ordering::Relaxed);
         self.state.store(INITIALISING, Ordering::Relaxed);
 
         match state {
             UNINIT => {
                 // Safety: The check above (hopefully) ensures there no other active references
-                unsafe { &mut *self.cell.get() }.write(val);
+                let val = unsafe { &mut *self.cell.get() }.write(val);
                 self.state.store(INIT, Ordering::Relaxed);
-                Ok(())
+                Ok(val)
             }
             state => Err(InitError::new(state)),
         }
@@ -85,16 +87,13 @@ impl<T> Display for InitError<T> {
         let name = type_name::<T>().rsplit("::").next().unwrap_or_default();
 
         let state = match self.state {
-            UNINIT => "Uninitialised",
+            UNINIT => "Uninit",
             INITIALISING => "Initialising",
             INIT => "Initialised",
             _ => "Unknown",
         };
 
-        write!(
-            f,
-            "InitLater value of type {name} was accessed in state {state}!",
-        )
+        write!(f, "InitLater {name} was accessed while {state}!",)
     }
 }
 
@@ -126,23 +125,63 @@ impl UnsafeFlag {
     }
 }
 
-/// A wrapper type for easily checking if your descriptor (`T`) loaded correctly.
-pub enum LoadDescriptorError<T> {
+/// A wrapper type for easily checking if your register (`T`) loaded correctly.
+pub enum LoadRegisterError<T> {
     Load(InitError<T>),
     Store(&'static str),
+    Other(&'static str),
 }
 
-impl<T> From<InitError<T>> for LoadDescriptorError<T> {
+impl<T> From<InitError<T>> for LoadRegisterError<T> {
     fn from(err: InitError<T>) -> Self {
-        LoadDescriptorError::Load(err)
+        LoadRegisterError::Load(err)
     }
 }
 
-impl<T> Display for LoadDescriptorError<T> {
+impl<T> Display for LoadRegisterError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            LoadDescriptorError::Load(e) => write!(f, "Failed loading descriptor - {e}"),
-            LoadDescriptorError::Store(t) => write!(f, "Stored {t} doesn't match loaded IDT{t}"),
+            LoadRegisterError::Load(e) => write!(f, "Failed load, {e}"),
+            LoadRegisterError::Store(t) => write!(f, "Stored {t} doesn't match loaded {t}"),
+            LoadRegisterError::Other(s) => write!(f, "{s}"),
         }
+    }
+}
+
+// A wrapper type for easily creating descriptors for your descriptor tables.
+#[repr(C, packed)]
+pub struct TableDescriptor<T> {
+    size: u16,
+    offset: *const T,
+}
+
+impl<T> TableDescriptor<T> {
+    /// Creates a new descriptor pointing to `table`.
+    pub fn new(table: &'static T) -> Self {
+        TableDescriptor {
+            size: (size_of::<T>() - 1) as u16,
+            offset: table,
+        }
+    }
+
+    /// Returns an uninitialised descriptor.
+    pub fn uninit() -> Self {
+        TableDescriptor {
+            size: 0,
+            offset: ptr::null(),
+        }
+    }
+}
+
+impl<T> PartialEq for TableDescriptor<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.size == other.size && self.offset as u64 == other.offset as u64
+    }
+}
+
+impl<T> Display for TableDescriptor<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let size = self.size;
+        write!(f, "size = {size} & offset = 0x{:x}", self.offset as u64)
     }
 }

@@ -1,16 +1,26 @@
 use crate::{
     interrupts,
-    wrappers::{InitLater, LoadDescriptorError},
+    startup::{self, GDT_INIT},
+    wrappers::{InitError, InitLater, LoadRegisterError, TableDescriptor},
 };
-use core::arch::asm;
+use core::{arch::asm, mem};
 
 /// The number of entries the GDT contains.
-static GDT_ENTRIES: usize = 3;
+static GDT_ENTRIES: usize = 5;
 
-static GDT: InitLater<Gdt> = InitLater::uninit();
+/// The loaded GDT.
+pub static GDT: InitLater<Gdt> = InitLater::uninit();
+
+/// Offset in the GDT where the kernel's code segment will be.
+#[unsafe(no_mangle)]
+static CODE_SEGMENT_OFFSET: u16 = 0x8;
+
+/// Offset in the GDT where the TSS's system segment descriptor will be.
+static TSS_SEGMENT_OFFSET: u64 = 0x18;
 
 /// The Global Descriptor Table.
 /// [`Reference`](https://wiki.osdev.org/Global_Descriptor_Table)
+#[repr(transparent)]
 pub struct Gdt([SegmentDescriptor; GDT_ENTRIES]);
 
 /// A segment descriptor in the GDT.
@@ -27,43 +37,194 @@ impl SegmentDescriptor {
     }
 }
 
-/// The value used by the lgdt instruction load the GDT.
-#[derive(PartialEq, Default)]
+/// The loaded Task State Segment.
+static TSS: InitLater<Tss> = InitLater::uninit();
+
+/// The 64 bit Task State Segment.
+/// [`Reference`](https://wiki.osdev.org/Task_State_Segment)
+#[derive(Default)]
+#[repr(C, packed(4))]
+pub struct Tss {
+    _reserved_1: u32,
+
+    /// Stack pointers used to when a privilege level change occurs from low to high.
+    privilege_ptrs: [u64; 3],
+    _reserved_2: u64,
+
+    /// The interrupt stack table.
+    ist: [u64; 7],
+
+    _reserved_3: u64,
+    _reserved_4: u16,
+    iomap: u16,
+}
+
+/// The 64 bit System Segment Descriptor.
+/// [`Reference`](https://wiki.osdev.org/Global_Descriptor_Table#Long_Mode_System_Segment_Descriptor)
+#[derive(Debug)]
 #[repr(C, packed)]
-pub struct GDTDescriptor {
-    size: u16,
-    offset: *const Gdt,
+struct SystemSegmentDescriptor {
+    /// The size of the TSS - 1
+    limit: u16,
+
+    /// The first 16 bits of the pointer
+    offset_very_low: u16,
+
+    /// The second 8 bits of the pointer
+    offset_low: u8,
+
+    /// The access byte, just some flags
+    access: u8,
+
+    /// Extra flags and limit bits
+    flags: u8,
+
+    /// The middle 8 bits of the pointer
+    offset_medium: u8,
+
+    /// The last 32 bits of the pointer
+    offset_high: u32,
+    _reserved: u32,
+}
+
+impl SystemSegmentDescriptor {
+    /// Creates a new descriptor from the provided TSS.
+    fn new(tss: &'static Tss) -> Self {
+        /// Present, available 64 bit TSS
+        static ACCESS: u8 = 0b1000_1001;
+
+        let tss = tss as *const Tss as u64;
+
+        SystemSegmentDescriptor {
+            limit: (size_of::<Tss>() - 1) as u16,
+            offset_very_low: tss as u16,
+            offset_low: (tss >> 16) as u8,
+            access: ACCESS,
+            flags: 0, // no extra limit bits as the TSS size fits inside the first field
+            offset_medium: (tss >> 24) as u8,
+            offset_high: (tss >> 32) as u32,
+            _reserved: 0,
+        }
+    }
+}
+
+/// Creates a new TSS into the `TSS` static.
+/// Gives the first IST stack pointer having it's own stack.
+pub fn setup_tss() -> Result<(), InitError<Tss>> {
+    /// The size of the stack given to IST 1, in bytes.
+    static SIZE: u64 = 4096 * 5;
+
+    /// The stack given to IST 1.
+    static mut STACK: [u8; SIZE as usize] = [0; SIZE as usize];
+
+    let mut tss = Tss::default();
+    let stack_addr = &raw const STACK as u64;
+    let stack_end_addr = stack_addr + SIZE;
+    dbg_info!("emergency stack at 0x{stack_addr:x} to 0x{stack_end_addr:x}");
+
+    // Load TSS with new stack into static
+    tss.ist[0] = stack_end_addr;
+    tss.iomap = size_of::<Tss>() as u16;
+    TSS.init(tss)?;
+
+    dbg_info!("TSS at 0x{:x}", &raw const TSS as u64);
+
+    Ok(())
+}
+
+/// Loads the TSS into the task register.
+pub fn load_tss() -> Result<(), LoadRegisterError<Tss>> {
+    TSS.read()?;
+
+    if !startup::gdt_init() {
+        do yeet LoadRegisterError::Other("GDT is not initialised!!!")
+    }
+
+    // Safety: The TSS descriptor is loaded into a valid GDT by this point
+    unsafe { asm!("ltr {0:x}", in(reg) TSS_SEGMENT_OFFSET, options(nostack, preserves_flags)) }
+
+    let stored_offset: u64;
+    // Safety: Just storing a value into a local var
+    unsafe { asm!("str {}", out(reg) stored_offset, options(nostack, preserves_flags)) }
+
+    // Check if TSS_SEGMENT_OFFSET was actually stored
+    if stored_offset != TSS_SEGMENT_OFFSET {
+        do yeet LoadRegisterError::Store("TSS offset")
+    }
+
+    Ok(())
 }
 
 /// Loads the GDT into the GDTR register.
-pub fn load_gdt() -> Result<(), LoadDescriptorError<Gdt>> {
+pub fn load_gdt() -> Result<(), LoadRegisterError<Gdt>> {
     interrupts::cli();
     let mut gdt = Gdt([const { SegmentDescriptor(0) }; GDT_ENTRIES]);
 
     // Init GDT with a code & data segment
-    gdt.0[1] = SegmentDescriptor::new(true);
-    gdt.0[2] = SegmentDescriptor::new(false);
-    GDT.init(gdt)?;
+    gdt.0[1] = SegmentDescriptor::new(true); // Loaded at CODE_SEGMENT_OFFSET
+    gdt.0[2] = SegmentDescriptor::new(false); // <- is this needed?
+
+    // Add TSS descriptor
+    // Don't need to log an error if the read fails, as it would be printed in the 'Prepared TSS load' startup task
+    if let Ok(tss) = TSS.read() {
+        let desc = SystemSegmentDescriptor::new(tss);
+
+        // Safety: The gdt doesn't actually need these values to be segment descriptors,
+        // two back to back can instead be a single system segment descriptor, like what we're doing here
+        let (low, high) = unsafe {
+            mem::transmute::<SystemSegmentDescriptor, (SegmentDescriptor, SegmentDescriptor)>(desc)
+        };
+
+        gdt.0[3] = low; // Loaded at TSS_SEGMENT_OFFSET
+        gdt.0[4] = high;
+    }
+
+    // Load the GDT into the static
+    let _gdt = GDT.init(gdt)?;
+    dbg_info!("GDT loaded at 0x{:x}", _gdt as *const Gdt as u64);
 
     // Descriptor to be loaded into GDTR
-    let descriptor = GDTDescriptor {
-        size: (size_of::<Gdt>() - 1) as u16,
-        offset: GDT.read()?,
-    };
+    let descriptor = TableDescriptor::new(GDT.read()?);
 
     // Safety: The GDT and it's descriptor MUST be valid by this point
     unsafe {
         asm!("lgdt ({0})", in(reg) &descriptor, options(att_syntax, nostack));
     }
 
-    // Check if the loaded GDT equals the stored one
-    let mut stored_gdt = GDTDescriptor::default();
-    // Safety: We're just storing a value
-    unsafe { asm!("sgdt [{}]", in(reg) (&mut stored_gdt), options(nostack)) };
+    if gdt_register() != descriptor {
+        do yeet LoadRegisterError::Store("GDT");
+    }
 
-    if stored_gdt != descriptor {
-        return Err(LoadDescriptorError::Store("GDT"));
+    // Safety: Just loaded the GDT with a code segment
+    unsafe {
+        reload_cs();
+        GDT_INIT.store(true)
     }
 
     Ok(())
+}
+
+/// Returns the current value in the GDT register.
+pub fn gdt_register() -> TableDescriptor<Gdt> {
+    let mut gdt = TableDescriptor::uninit();
+    // Safety: We're just storing a value
+    unsafe { asm!("sgdt [{}]", in(reg) (&mut gdt), options(preserves_flags, nostack)) };
+    gdt
+}
+
+/// Reloads the CS register
+/// # Safety
+/// There must be a valid code segment where the `CODE_SEGMENT_OFFSET` static is pointing in the GDT.
+unsafe extern "C" fn reload_cs() {
+    unsafe {
+        asm!(
+            "push [CODE_SEGMENT_OFFSET]", // push code segment offset
+            "lea {addr}, [rip + 55f]",    // load far return addr into rax
+            "push {addr}",                // push far return addr to the stack
+            "retfq",                      // perform a far return, reloading CS
+            "55:",
+            addr = lateout(reg) _,
+            options(preserves_flags),
+        )
+    }
 }

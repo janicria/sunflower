@@ -1,4 +1,7 @@
-use crate::{ports::{writeb, Port}, startup};
+use crate::{
+    ports::{Port, writeb},
+    startup,
+};
 
 /// Sends the EOI command to the PIC.
 #[unsafe(no_mangle)]

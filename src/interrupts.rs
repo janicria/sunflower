@@ -1,9 +1,9 @@
 use crate::{
     time, vga,
-    wrappers::{InitLater, LoadDescriptorError},
+    wrappers::{InitLater, LoadRegisterError, TableDescriptor},
 };
-use core::{arch::asm, convert::Infallible, hint};
-use idt::{IDTDescriptor, Idt};
+use core::{arch::asm, convert::Infallible, fmt::Display, hint, mem};
+use idt::InterruptDescriptor;
 use keyboard::KbdInitError;
 
 /// IDT and exception handlers.
@@ -18,7 +18,11 @@ mod pic;
 /// Handles exceptions and panics.
 mod rbod;
 
-static IDT: InitLater<Idt> = InitLater::uninit();
+/// The loaded IDT.
+pub static IDT: InitLater<Idt> = InitLater::uninit();
+
+/// The Interrupt Descriptor Table.
+pub struct Idt([InterruptDescriptor; 256]);
 
 /// The interrupt stack frame.
 #[derive(Debug, Default)]
@@ -31,23 +35,38 @@ struct IntStackFrame {
     ss: u64,
 }
 
+impl Display for IntStackFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "  Location: {:x}   Flags: {}   Code segment: {}\n  Stack pointer: {:x}   Stack segment: {}",
+            self.ip, self.flags, self.cs, self.sp, self.ss
+        )
+    }
+}
+
 /// Loads the IDT.
-pub fn load_idt() -> Result<(), LoadDescriptorError<Idt>> {
-    let idt = Idt::new();
+pub fn load_idt() -> Result<(), LoadRegisterError<Idt>> {
+    let idt = IDT.init(Idt::new())?;
+    dbg_info!("IDT loaded at 0x{:x}", idt as *const Idt as u64);
+
     // Safety: Using properly filled out IDT.
     let loaded_idt = unsafe { idt.load() };
-    IDT.init(Idt::new())?;
-
-    let mut stored_idt = IDTDescriptor::default();
-    // Store loaded IDT into a local variable. Safety: We're just storing a value
-    unsafe { asm!("sidt [{}]", in(reg) (&mut stored_idt), options(nostack)) };
 
     // Return Err if sidt (store IDT) != descriptor passed to lidt
-    if stored_idt != loaded_idt {
-        return Err(LoadDescriptorError::Store("IDT"));
+    if idt_register() != loaded_idt {
+        do yeet LoadRegisterError::Store("IDT");
     }
 
     Ok(())
+}
+
+/// Returns the current value in the GDT register.
+pub fn idt_register() -> TableDescriptor<Idt> {
+    let mut idt = TableDescriptor::uninit();
+    // Safety: We're just storing a value
+    unsafe { asm!("sidt [{}]", in(reg) (&mut idt), options(preserves_flags, nostack)) };
+    idt
 }
 
 /// Initialises the PIC.
@@ -89,7 +108,8 @@ pub fn cli() {
 fn triple_fault() {
     // Safety: We're deliberately being very unsafe here
     unsafe {
-        Idt::invalid().load(); // nuke IDT
+        let idt = mem::transmute::<&Idt, &'static Idt>(&Idt::invalid()); // get static IDT
+        idt.load(); // load the invalid & local IDT
         asm!("int 99"); //  gpf -> double fault -> triple fault
     }
 }

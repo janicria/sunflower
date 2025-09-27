@@ -43,7 +43,7 @@ pub fn set_timer_interval() -> Result<(), &'static str> {
     static COMMAND: u8 = 0b0_111_11_00;
 
     if !startup::pic_init() {
-        return Err("PIC is not initialised!!!");
+        do yeet "PIC is not initialised!!!";
     }
 
     interrupts::sti();
@@ -106,6 +106,7 @@ pub fn set_waiting_char(show: bool) {
 /// Never returns if external interrupts are disabled.
 pub fn wait(ticks: u64) {
     if !startup::pit_init() {
+        warn!("attempted waiting (with ints) with an uninit PIT!");
         return;
     }
 
@@ -140,6 +141,7 @@ pub fn wait_no_ints(ticks: u64) {
     static TIME: AtomicU64 = AtomicU64::new(0);
 
     if !startup::pit_init() {
+        warn!("attempted waiting (without ints) with an uninit PIT!");
         return;
     }
 
@@ -162,6 +164,7 @@ pub fn wait_no_ints(ticks: u64) {
 }
 
 /// Second-precise time value.
+#[derive(Default)]
 pub struct Time {
     year: u8,
     month: u8,
@@ -193,7 +196,7 @@ impl Display for Time {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            " {}:{}:{} {}/{}/{}",
+            "{}:{}:{} {}/{}/{}",
             self.hour, self.min, self.sec, self.day, self.month, self.year
         )
     }

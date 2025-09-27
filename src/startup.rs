@@ -1,6 +1,11 @@
 use crate::wrappers::UnsafeFlag;
 use core::fmt::Display;
 
+// Whether or not the GDT has been initialised yet
+/// # Flag
+/// Falsely setting this flag to true causes the TSS keyboard assume it's ready to be initialised.
+pub static GDT_INIT: UnsafeFlag = UnsafeFlag::new(false);
+
 /// Whether or not the PIC has been initialised yet
 /// # Flag
 /// Falsely setting this flag to true causes the PIT & PS/2 keyboard assume they're ready to be initialised.
@@ -32,10 +37,16 @@ pub fn kbd_init() -> bool {
     KBD_INIT.load()
 }
 
+/// Returns true if the GDT keyboard has been initialised.
+pub fn gdt_init() -> bool {
+    GDT_INIT.load()
+}
+
 /// Runs `task` as a startup task, printing `OK` or `ERR` depending on the result.
 ///
 /// The task must **NEVER** assume interrupts to either be set or cleared when ran,
 /// and must not rely on any kernel services which depend on their respective INIT static being set.
+#[inline(never)]
 pub fn run<E>(name: &str, task: fn() -> Result<(), E>)
 where
     E: Display,

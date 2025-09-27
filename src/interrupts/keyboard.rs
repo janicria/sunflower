@@ -44,7 +44,7 @@ pub fn init() -> Result<(), KbdInitError> {
     super::sti();
 
     if !startup::pic_init() {
-        return Err(KbdInitError::new("PIC is not initialised!!!"));
+        do yeet KbdInitError::new("PIC is not initialised!!!");
     }
 
     // Safety: This is the only use of ports 0x60 & 0x64, excluding unsafe functions
@@ -232,7 +232,7 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
             KeyCode::F7 => print_help(),
             KeyCode::F2 => {
                 vga::clear();
-                vga::draw_topbar(" Alt Buf ");
+                vga::draw_topbar("Empty buf");
             }
             _ => (),
         }
@@ -262,7 +262,7 @@ fn print_help() {
     vga::clear();
     vga::draw_topbar("   Help  ");
 
-    println!(fg = Pink, "\nWelcome to Sunflower!! \u{1}\n");
+    println!(fg = Pink, "\nWelcome to Sunflower!! \u{1}");
 
     // Explains what syscmds are
     println!(fg = LightBlue, "\nHow to run System Commands");
@@ -277,17 +277,20 @@ Note: The SysRq key might be the same as PrintScreen on your keyboard."
     println!(
         "1 - Prints system information   2 - Clears the screen
 3 - Beeps loudly                4 - Crashes sunflower via rbod
-5 - Restarts the device         6 - Swap between text buffers"
+5 - Restarts the device         6 - Swap between text buffers
+7 - Shows this help message"
     );
 
     // Talks about sunflower being a glorified text editor
     println!(fg = LightBlue, "\nDrawing");
-    println!("By using the arrow keys, you can position the cursor to anywhere on the screen.
-You can write or draw whatever you want, by typing characters on you keyboard.");
+    println!(
+        "By using the arrow keys, you can position the cursor to anywhere on the screen.
+You can write or draw whatever you want, by typing characters on your keyboard."
+    );
 
     // Explains what rbod is
     println!(fg = LightBlue, "\nRBOD - Rainbow Box Of Death");
-    println!(
+    print!(
         "Sunflower's crash handler is called rbod (original name I know).
 It looks really cool and I recommend running SysCmds 4 just to see it.
 When in rbod you're locked to the three key options, and can't do anything else."

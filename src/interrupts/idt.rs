@@ -1,7 +1,8 @@
 use super::{
-    IntStackFrame,
+    Idt, IntStackFrame,
     rbod::{self, ErrCodeHandler, ErrorCode, RbodErrInfo},
 };
+use crate::{vga, wrappers::TableDescriptor};
 use core::{
     arch::{asm, naked_asm},
     sync::atomic::Ordering,
@@ -12,17 +13,6 @@ type Handler = u64;
 /// Error code argument passed to cont and rbod.
 #[unsafe(no_mangle)]
 pub static mut ERR_CODE: ErrorCode = ErrorCode::Invalid;
-
-/// The Interrupt Descriptor Table.
-pub struct Idt([InterruptDescriptor; 256]);
-
-/// The value used by the lidt instruction load the IDT.
-#[derive(PartialEq, Default)]
-#[repr(C, packed)]
-pub struct IDTDescriptor {
-    size: u16,
-    offset: *const Idt,
-}
 
 /// Pushes all registers which need to be saved before calling C ABI functions.
 macro_rules! pushregs {
@@ -113,21 +103,21 @@ impl Idt {
         let mut idt = Idt([InterruptDescriptor::default(); 256]);
 
         // A list of entry IDs can be found at: https://wiki.osdev.org/Exceptions
-        idt.set_handler(0, rbod_wrapper!(0));
-        idt.set_handler(1, rbod_wrapper!(1));
-        idt.set_handler(2, rbod_wrapper!(2));
-        idt.set_handler(3, cont_wrapper!(3, 0));
-        idt.set_handler(5, rbod_wrapper!(5));
-        idt.set_handler(6, cont_wrapper!(6, 2));
-        idt.set_handler(7, rbod_wrapper!(7));
-        idt.set_handler(8, double_fault_handler as Handler);
-        idt.set_handler(13, gpf_handler as Handler);
-        idt.set_handler(14, page_fault_handler as Handler);
-        idt.set_handler(IRQ_START + 0, timer_handler as Handler);
-        idt.set_handler(IRQ_START + 1, key_pressed_wrapper as Handler);
-        idt.set_handler(IRQ_START + 7, dummy_handler as Handler);
-        idt.set_handler(IRQ_START + 8, rtc_handler as Handler);
-        idt.set_handler(IRQ_START + 15, dummy_handler as Handler);
+        idt.set_handler(0, None, rbod_wrapper!(0));
+        idt.set_handler(1, None, rbod_wrapper!(1));
+        idt.set_handler(2, None, rbod_wrapper!(2));
+        idt.set_handler(3, None, cont_wrapper!(3, 0));
+        idt.set_handler(5, None, rbod_wrapper!(5));
+        idt.set_handler(6, None, cont_wrapper!(6, 2));
+        idt.set_handler(7, None, rbod_wrapper!(7));
+        idt.set_handler(8, Some(1), double_fault_handler as Handler);
+        idt.set_handler(13, None, gpf_handler as Handler);
+        idt.set_handler(14, None, page_fault_handler as Handler);
+        idt.set_handler(IRQ_START + 0, None, timer_handler as Handler);
+        idt.set_handler(IRQ_START + 1, None, key_pressed_wrapper as Handler);
+        idt.set_handler(IRQ_START + 7, None, dummy_handler as Handler);
+        idt.set_handler(IRQ_START + 8, None, rtc_handler as Handler);
+        idt.set_handler(IRQ_START + 15, None, dummy_handler as Handler);
 
         idt
     }
@@ -138,19 +128,16 @@ impl Idt {
     }
 
     /// Sets the table's entry with id `entry_id`
-    fn set_handler(&mut self, entry_id: usize, handler: Handler) {
-        self.0[entry_id] = InterruptDescriptor::new(handler, 0)
+    fn set_handler(&mut self, entry_id: usize, ist: Option<u8>, handler: Handler) {
+        self.0[entry_id] = InterruptDescriptor::new(handler, ist.unwrap_or_default())
     }
 
     /// Loads the table into the `IDTR` register.
     /// Returns the created `IDTDescriptor`.
     /// # Safety
     /// Very bad things will happen if `self` isn't properly filed out.
-    pub unsafe fn load(&self) -> IDTDescriptor {
-        let descriptor = IDTDescriptor {
-            size: (size_of::<Idt>() - 1) as u16,
-            offset: self,
-        };
+    pub unsafe fn load(&'static self) -> TableDescriptor<Idt> {
+        let descriptor = TableDescriptor::new(self);
 
         unsafe {
             asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax, nostack));
@@ -161,16 +148,28 @@ impl Idt {
 }
 
 /// An entry in the `IDT`
+/// [`Reference`](https://wiki.osdev.org/Interrupt_Descriptor_Table#Gate_Descriptor_2)
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub struct InterruptDescriptor {
-    offset_low: u16,    // offset bits 0..15
-    selector: u16,      // segment selector in the gdt
-    ist: u8,            // ist offset
-    attributes: u8,     // gate type, dpl, and present
-    offset_middle: u16, // offset bits 16..31
-    offset_high: u32,   // offset bits 32..63
-    reserved: u32,
+    /// Offset bits 0..15
+    offset_low: u16,
+
+    /// The segment selector in the GDT
+    selector: u16,
+
+    /// The offset in the IST
+    ist: u8,
+
+    /// The gate type, dpl, and present bits
+    attributes: u8,
+
+    /// Offset bits 16..31
+    offset_middle: u16,
+
+    /// Offset bits 32..63
+    offset_high: u32,
+    _reserved: u32,
 }
 
 impl InterruptDescriptor {
@@ -183,14 +182,23 @@ impl InterruptDescriptor {
             attributes: 0,
             offset_middle: 0,
             offset_high: 0,
-            reserved: 0,
+            _reserved: 0,
         }
     }
 
     /// Returns a new descriptor using `handler` as it's offset and `ist` for the IST.
     fn new(offset_ptr: Handler, ist: u8) -> Self {
+        /// Present = 1, dpl = 0, must be zero = 0, gate type = interrupt,
+        static FLAGS: u8 = 0b1_00_0_1111;
+
         let cs_reg;
-        unsafe { asm!("mov {0:x}, cs", out(reg) cs_reg) }
+        unsafe { asm!("mov {0:x}, cs", out(reg) cs_reg, options(preserves_flags, nostack)) }
+
+        // Force the ist to be only 3 bits, as remaining bits are reserved
+        if ist > 0b111 {
+            warn!("attempted creating an int descriptor with an ist > 7, which will be truncated!");
+        }
+        let ist = ist & 0b111;
 
         InterruptDescriptor {
             selector: cs_reg,
@@ -198,8 +206,8 @@ impl InterruptDescriptor {
             offset_middle: (offset_ptr >> 16) as u16,
             offset_high: (offset_ptr >> 32) as u32,
             ist,
-            attributes: 0x8E, // gate type = interrupt, dpl = 0, present = 1
-            reserved: 0,
+            attributes: FLAGS,
+            _reserved: 0,
         }
     }
 }
@@ -232,7 +240,7 @@ extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64
         let sstack = bit_set(err_code, 6, "Shadow stack", "");
 
         println!(
-            "  Cause: {present}   Address: {addr}   Privilege: {causer}\n  Flags: {rwrite}{instruction}{pkey}{sstack}\n"
+            "  Cause: {present}  Address: {addr}  Privilege: {causer}\n  Flags: {rwrite}{instruction}{pkey}{sstack}\n"
         )
     }
 }
@@ -269,8 +277,31 @@ extern "x86-interrupt" fn gpf_handler(frame: IntStackFrame, err_code: u64) {
 }
 
 /// Ran when a double fault occurs.
-extern "x86-interrupt" fn double_fault_handler(frame: IntStackFrame, _err_code: u64) {
-    super::rbod::rbod(ErrorCode::DoubleFault, RbodErrInfo::Exception(frame), None)
+#[unsafe(naked)]
+#[unsafe(no_mangle)]
+extern "C" fn double_fault_handler() -> ! {
+    naked_asm!(
+        "cli",                         // just in case ints got enabled somehow
+        "pop rax",                     // remove the empty error code double faults push
+        "mov rdi, rsp",                // store stack frame in first arg
+        "call print_df_info",          // print error info
+        "mov rax, 0xDFDFDFDFDFDFDFDF", // pseudo error message which can be viewed in QEMU
+        "hlt",                         // save power by halting
+        "jmp double_fault_handler"     // halt can get bypassed by a NMI or System Management Mode
+    );
+}
+
+/// Used by the double fault handler to print an error message.
+#[unsafe(no_mangle)]
+extern "C" fn print_df_info(frame: IntStackFrame) {
+    // Safety: Whoever was holding that buffer is not going to be returned to anytime soon
+    unsafe { vga::BUFFER_HELD.store(false) }
+    vga::clear();
+
+    println!(
+        "Whoops... looks like a double fault!\n\nHere's some info about it:\n{frame}\n
+Since double faults are pretty nasty, sunflower can't trust any kernel services to get keyboard input or wait, so you'll have to restart your device manually"
+    );
 }
 
 /// Ran when the PIT generates an interrupt.
