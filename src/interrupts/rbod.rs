@@ -1,10 +1,15 @@
+#[cfg(test)]
+use crate::tests::exit_qemu;
 use crate::{
     interrupts::{IntStackFrame, idt::ERR_CODE},
     ports::{self, Port},
     speaker,
     sysinfo::SystemInfo,
     time::{self, Time},
-    vga::{self, BUFFER_HEIGHT, BUFFER_WIDTH, Color, Corner, VGAChar, YoinkedBuffer},
+    vga::{
+        buffers::{self, BUFFER_HEIGHT, BUFFER_WIDTH, YoinkedBuffer},
+        print::{self, Color, Corner, VGAChar},
+    },
 };
 use core::{
     panic::PanicInfo,
@@ -79,14 +84,14 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     speaker::stop(); // in case anything was playing, prevent it from playing forever
 
     // Safety: Whatever was using the buffer will never be returned to from rbod
-    unsafe { vga::BUFFER_HELD.store(false) };
-    vga::swap_buffers();
-    vga::clear();
+    unsafe { buffers::BUFFER_HELD.store(false) };
+    buffers::swap();
+    buffers::clear();
 
     // Begin the printing
-    vga::write_char(VGAChar::TOPLEFT_CORNER, Color::Grey, Color::Black);
+    print::write_char(VGAChar::TOPLEFT_CORNER, Color::Grey, Color::Black);
     print!("------------------------------------------------------------------------------");
-    vga::write_char(VGAChar::TOPRIGHT_CORNER, Color::Grey, Color::Black);
+    print::write_char(VGAChar::TOPRIGHT_CORNER, Color::Grey, Color::Black);
     print!(
         fg = LightRed,
         "\n                An unrecoverable error has occurred: "
@@ -144,12 +149,12 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
         "\n\n                             PRESS KEY TO PROCEED\n"
     );
 
-    vga::write_char(VGAChar::BOTTOMLEFT_CORNER, Color::Grey, Color::Black);
+    print::write_char(VGAChar::BOTTOMLEFT_CORNER, Color::Grey, Color::Black);
     print!("------------------------------------------------------------------------------");
 
     // Set the last
     unsafe {
-        vga::BUFFER[BUFFER_HEIGHT as usize - 1][BUFFER_WIDTH as usize - 1] =
+        buffers::BUFFER[BUFFER_HEIGHT as usize - 1][BUFFER_WIDTH as usize - 1] =
             VGAChar::BOTTOMRIGHT_CORNER
     }
 
@@ -204,7 +209,7 @@ fn check_keyboard() {
     if scancode == ONE || scancode == ONE_KEYPAD {
         super::triple_fault();
     } else if scancode == TWO || scancode == TWO_KEYPAD {
-        vga::swap_buffers()
+        buffers::swap()
     } else if scancode == THREE || scancode == THREE_KEYPAD {
         speaker::play_song();
     }
@@ -298,7 +303,14 @@ fn rbod_colors() {
 
 /// Ran when a panic occurs.
 #[panic_handler]
+#[allow(unreachable_code)]
 fn panic(info: &PanicInfo) -> ! {
+    #[cfg(test)]
+    {
+        println!("- failed, see failure cause below\n{info}");
+        exit_qemu(true);
+    }
+
     super::cli();
     rbod(ErrorCode::KernelPanic, RbodErrInfo::Panic(info), None)
 }

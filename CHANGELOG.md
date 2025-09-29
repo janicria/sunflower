@@ -1,5 +1,13 @@
 # Sunflower changelog
 
+## Development 06
+##### Tests & better vga 29/9/25
+
+- Added a bunch of tests which can be ran through `cargo did-i-break-anything`
+- Spilt the vga module into 3 smaller modules (`buffers`, `cursor` & `print`) 
+- Improved SysCmd 1 (again)
+- Updated  the SysInfo & Help screenshots
+
 ## Development 05
 ##### TSS, debug macros & better double faults 27/9/25
 
@@ -10,7 +18,7 @@
 - Improved the system info section in rbod and SysCmd 1
 - Renamed `LoadDescriptorError`to `LoadRegisterError` since the TSS now uses it
 - Prevented `vga::swap_buffers` from accidentally still using the stack, causing stack overflows when called
-- Enabled the very import `yeet_expr` feature 
+- Enabled the very important `yeet_expr` feature 
 - Fixed some rare cases where the Topbar would be hidden
 - Updated rust version to accommodate for `target-pointer-width` becoming an integer in `bootloader`
 

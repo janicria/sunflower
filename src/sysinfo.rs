@@ -5,16 +5,16 @@ use crate::{
     time::{self, Time},
     wrappers::{InitError, TableDescriptor},
 };
-use core::{arch::asm, fmt::Display, sync::atomic::Ordering};
+use core::{arch::asm, fmt::Display};
 
 /// The current version of the sunflower kernel.
-static VERSION_LONG: &str = "SFK-00-Development-05";
+static VERSION_LONG: &str = "SFK-00-Development-06";
 
-/// A shortened version of sunflower.
-static VERSION_SHORT: &str = "SFK-Dev-05";
+/// A shortened version of the kernel's version.
+static VERSION_SHORT: &str = "SFK-Dev-06";
 
 /// Message updated each patch.
-static PATCH_QUOTE: &str = "Sunflowers!";
+static PATCH_QUOTE: &str = "SFK > WinNT";
 
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]
@@ -116,7 +116,6 @@ pub struct SystemInfo {
     pub pit_init: bool,
     pub kbd_init: bool,
     pub disable_enter: bool,
-    pub waiting: bool,
 }
 
 impl SystemInfo {
@@ -141,7 +140,6 @@ impl SystemInfo {
             idt_init: interrupts::IDT.read().is_ok(),
             idt_descriptor: interrupts::idt_register(),
 
-            waiting: time::WAITING.load(Ordering::Relaxed),
             disable_enter: cfg!(feature = "disable_enter"),
             pic_init: startup::pic_init(),
             pit_init: startup::pit_init(),
@@ -182,26 +180,26 @@ Launch time: ",
         write!(
             f,
             "Uptime: {} ({}h {}m {}s)
+
+Flags
 Disable enter: {}
-Waiting: {}
-GDT init: {} with {}
-IDT init: {} with {}
 PIC initialised: {}
 PIT initialised: {}
-KBD initialised: {}\n",
+KBD initialised: {}
+GDT init: {} with {}
+IDT init: {} with {}\n",
             self.time,
             self.time_secs / 3600,      // hours
             (self.time_secs / 60) % 60, // mins
             self.time_secs % 60,        // secs
             self.disable_enter,
-            self.waiting,
+            self.pic_init,
+            self.pit_init,
+            self.kbd_init,
             self.gdt_init,
             self.gdt_descriptor,
             self.idt_init,
             self.idt_descriptor,
-            self.pic_init,
-            self.pit_init,
-            self.kbd_init,
         )?;
 
         // Write registers

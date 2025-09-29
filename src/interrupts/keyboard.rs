@@ -3,7 +3,12 @@ use crate::{
     ports::{self, Port},
     speaker, startup,
     sysinfo::SystemInfo,
-    vga::{self, BUFFER_HEIGHT, CursorPos, CursorShift},
+    vga::{
+        self,
+        buffers::{self, BUFFER_HEIGHT},
+        cursor::{self, CursorPos, CursorShift},
+        print,
+    },
 };
 use core::{
     fmt::Display,
@@ -228,10 +233,10 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
             KeyCode::F3 => speaker::play_special(600, 400, false, false),
             KeyCode::F4 => super::rbod::rbod(ErrorCode::SysCmd4, RbodErrInfo::None, None),
             KeyCode::F5 => super::triple_fault(),
-            KeyCode::F6 => vga::swap_buffers(),
+            KeyCode::F6 => buffers::swap(),
             KeyCode::F7 => print_help(),
             KeyCode::F2 => {
-                vga::clear();
+                buffers::clear();
                 vga::draw_topbar("Empty buf");
             }
             _ => (),
@@ -242,8 +247,8 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
 /// Used by syscmd 1 to print the system info.
 fn print_sysinfo() {
     // Store prev buffer in alt
-    vga::swap_buffers();
-    vga::clear();
+    buffers::swap();
+    buffers::clear();
     vga::draw_topbar(" SysInfo ");
 
     println!(fg = LightBlue, "\nSystem information");
@@ -258,8 +263,8 @@ fn print_sysinfo() {
 /// Used by syscmd 7 to print the system info.
 fn print_help() {
     // Store prev buffer in alt
-    vga::swap_buffers();
-    vga::clear();
+    buffers::swap();
+    buffers::clear();
     vga::draw_topbar("   Help  ");
 
     println!(fg = Pink, "\nWelcome to Sunflower!! \u{1}");
@@ -300,10 +305,10 @@ When in rbod you're locked to the three key options, and can't do anything else.
 /// Handles when an arrow key is pressed.
 fn handle_arrows(key: KeyCode) {
     match key {
-        KeyCode::ArrowLeft => vga::shift_cursor(CursorShift::Left),
-        KeyCode::ArrowRight => vga::shift_cursor(CursorShift::Right),
-        KeyCode::ArrowUp => vga::shift_cursor(CursorShift::Up),
-        KeyCode::ArrowDown => vga::shift_cursor(CursorShift::Down),
+        KeyCode::ArrowLeft => cursor::shift_cursor(CursorShift::Left),
+        KeyCode::ArrowRight => cursor::shift_cursor(CursorShift::Right),
+        KeyCode::ArrowUp => cursor::shift_cursor(CursorShift::Up),
+        KeyCode::ArrowDown => cursor::shift_cursor(CursorShift::Down),
         _ => (),
     }
 }
@@ -337,7 +342,7 @@ fn print_key(mut key: char, kbd: &Modifiers) {
 
     // Backspace is sometimes interpreted as char 8, delete as 7F, tab as 9 and escape as 1B
     if key == '\u{8}' || key == '\u{7F}' {
-        return vga::delete_prev_char();
+        return print::delete_prev_char();
     } else if key == '\u{9}' || key == '\u{1B}' {
         return;
     }

@@ -13,6 +13,7 @@ The latest version of Sunflower currently supports:
 - some beeps and boops using the PC Speaker,
 - a rudimentary 100 Hz timer and hardware clock reader,
 - some [system commands](https://github.com/janicria/sunflower?tab=readme-ov-file#system-commands),
+- a really cool test framework via `cargo did-i-break-anything`,
 - and the coolest crash screen ever (it's even rainbow)
 
 ## Building
@@ -31,10 +32,15 @@ to build sunflower. The resulting disk image should appear at
 Sunflower supports [`QEMU`](https://www.qemu.org/download/) for running it in a VM. After installing it you can just run either:
 ```
 cargo run-nosound     # Run without audio 
-cargo run-pipewire    # Run with pipewire support
-cargo run-pulseaudio  # Run with pulseaudio support
+cargo run-debug       # Run in debug mode without audio
+cargo run-pipewire    # Run with pipewire audio support
+cargo run-pulseaudio  # Run with pulseaudio audio support
+
 ```
-to run sunflower with either no audio, pipewire support or  pulseaudio support respectively.
+to run sunflower with either no audio, pipewire support or  pulseaudio support respectively. With QEMU installed, you can also test sunflower by running: 
+```
+cargo did-i-break-anything
+````
 
 ### Real hardware
 WARNING: Sunflower is not fully tested and may cause **damages** or **permanent harm** to your device if you try to run in on your device. I do not hold any responsibility for **anything** that may occur if you decide to do this and you are at your own risk.

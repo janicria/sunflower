@@ -65,6 +65,7 @@ impl<T> InitLater<T> {
 }
 
 /// The error returned from various `InitLater` functions.
+#[derive(Debug)]
 pub struct InitError<T> {
     state: u8,
     _marker: PhantomData<T>,
@@ -183,5 +184,27 @@ impl<T> Display for TableDescriptor<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let size = self.size;
         write!(f, "size = {size} & offset = 0x{:x}", self.offset as u64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests that `InitLater` can only be initialised once.
+    #[test_case]
+    fn initlater_inits_once() {
+        let init = InitLater::uninit();
+        assert!(init.init(0x42).is_ok());
+        assert!(init.init(0x43).is_err())
+    }
+
+    /// Tests that `InitLater` can't be read from before it's initialised.
+    #[test_case]
+    fn initlater_cant_read_before_init() {
+        let init = InitLater::uninit();
+        assert!(init.read().is_err());
+        let val = init.init(0x42).unwrap();
+        assert_eq!(val, &0x42)
     }
 }

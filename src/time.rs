@@ -2,7 +2,7 @@ use crate::{
     interrupts,
     ports::{self, Port},
     startup,
-    vga::Corner,
+    vga::print::Corner,
     wrappers::{InitError, InitLater},
 };
 use core::{
@@ -15,9 +15,6 @@ use core::{
 
 /// The base frequency of the PIT.
 pub static PIT_BASE_FREQ: u64 = 1193180;
-
-/// Set when wait is called due to the crash when rebooting from another OS.
-pub static WAITING: AtomicBool = AtomicBool::new(false);
 
 /// The time the kernel was launched.
 pub static LAUNCH_TIME: InitLater<Time> = InitLater::uninit();
@@ -110,7 +107,6 @@ pub fn wait(ticks: u64) {
         return;
     }
 
-    WAITING.store(true, Ordering::Relaxed);
     set_waiting_char(true);
 
     // wait...
@@ -121,7 +117,6 @@ pub fn wait(ticks: u64) {
     }
 
     set_waiting_char(false);
-    WAITING.store(false, Ordering::Relaxed);
 }
 
 /// Waits for approximately `ticks` ticks (`ticks / 100` seconds).
@@ -164,13 +159,24 @@ pub fn wait_no_ints(ticks: u64) {
 }
 
 /// Second-precise time value.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Time {
+    /// The current year, 0-99
     year: u8,
+
+    /// The current month, 1-12
     month: u8,
+
+    /// The current day of the month, 1-31
     day: u8,
+
+    /// The number of hours that have passed in the day, 0-23
     hour: u8,
+
+    /// The number of minutes that have passed in the hour, 0-59
     min: u8,
+
+    /// The number of seconds that have passed in the minute, 0-59
     sec: u8,
 }
 
@@ -274,5 +280,49 @@ extern "C" fn sync_time_to_rtc() {
 
     fn bcd_to_bin(bcd: u8) -> u8 {
         ((bcd / 16) * 10) + (bcd & 0xF)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::speaker;
+
+    use super::*;
+
+    /// Tests that `wait` waits for the correct amount of time.
+    #[test_case]
+    fn wait_waits_for_correct_time() {
+        // Ensures that time doesn't increase in between getting time & starting waiting
+        wait(1);
+
+        let time = get_time();
+        wait(10);
+        assert_eq!(time, get_time() - 10)
+    }
+
+    /// Tests that `wait`, `wait_no_ints` & `play_special` immediately return if the PIT failed initialisation.
+    #[test_case]
+    fn wait_services_require_pit() {
+        let init = startup::pit_init();
+        unsafe { startup::PIT_INIT.store(false) }
+
+        // Test fails due to timeout
+        wait(u64::MAX);
+        wait_no_ints(u64::MAX);
+        speaker::play_special(0, u64::MAX, false, false);
+
+        unsafe { startup::PIT_INIT.store(init) }
+    }
+
+    /// Tests that the RTC contains sane values through `LAUNCH_TIME`.
+    #[test_case]
+    fn rtc_contains_sane_values() {
+        let time = LAUNCH_TIME.read().unwrap();
+        assert!(time.year < 100);
+        assert!(time.month != 0 && time.month <= 12);
+        assert!(time.day != 0 && time.day < 32);
+        assert!(time.hour < 24);
+        assert!(time.min < 60);
+        assert!(time.sec < 60);
     }
 }

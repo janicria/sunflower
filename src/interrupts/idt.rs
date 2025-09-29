@@ -2,13 +2,18 @@ use super::{
     Idt, IntStackFrame,
     rbod::{self, ErrCodeHandler, ErrorCode, RbodErrInfo},
 };
-use crate::{vga, wrappers::TableDescriptor};
+use crate::{gdt, vga::buffers, wrappers::TableDescriptor};
+#[cfg(test)]
+use crate::{interrupts::IDT, tests::exit_qemu};
 use core::{
     arch::{asm, naked_asm},
     sync::atomic::Ordering,
 };
 
 type Handler = u64;
+
+/// Where IRQ vectors start in the IDT.
+static IRQ_START: usize = 32;
 
 /// Error code argument passed to cont and rbod.
 #[unsafe(no_mangle)]
@@ -97,9 +102,6 @@ impl Idt {
     /// This function only creates an IDT, and doesn't load it.
     #[allow(clippy::fn_to_numeric_cast, clippy::identity_op)]
     pub fn new() -> Self {
-        /// Where IRQ vectors start in the table.
-        static IRQ_START: usize = 32;
-
         let mut idt = Idt([InterruptDescriptor::default(); 256]);
 
         // A list of entry IDs can be found at: https://wiki.osdev.org/Exceptions
@@ -191,9 +193,6 @@ impl InterruptDescriptor {
         /// Present = 1, dpl = 0, must be zero = 0, gate type = interrupt,
         static FLAGS: u8 = 0b1_00_0_1111;
 
-        let cs_reg;
-        unsafe { asm!("mov {0:x}, cs", out(reg) cs_reg, options(preserves_flags, nostack)) }
-
         // Force the ist to be only 3 bits, as remaining bits are reserved
         if ist > 0b111 {
             warn!("attempted creating an int descriptor with an ist > 7, which will be truncated!");
@@ -201,7 +200,7 @@ impl InterruptDescriptor {
         let ist = ist & 0b111;
 
         InterruptDescriptor {
-            selector: cs_reg,
+            selector: gdt::cs_register(),
             offset_low: offset_ptr as u16,
             offset_middle: (offset_ptr >> 16) as u16,
             offset_high: (offset_ptr >> 32) as u32,
@@ -210,9 +209,19 @@ impl InterruptDescriptor {
             _reserved: 0,
         }
     }
+
+    /// Returns the descriptor's pointer / offset.
+    #[cfg(test)]
+    fn ptr(&self) -> Handler {
+        let mut ptr = self.offset_low as u64;
+        ptr |= (self.offset_middle as u64) << 16;
+        ptr |= (self.offset_high as u64) << 32;
+        ptr
+    }
 }
 
 /// Immediately returns.
+#[inline(never)]
 extern "x86-interrupt" fn dummy_handler(_frame: IntStackFrame) {}
 
 /// Returns `set` if the `bit`th bit in `code` is set, otherwise returns `clear`.
@@ -221,6 +230,7 @@ fn bit_set(code: u64, bit: u64, set: &'static str, clear: &'static str) -> &'sta
 }
 
 /// Ran when a page fault occurs.
+#[inline(never)]
 extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64) {
     super::rbod::rbod(
         ErrorCode::PageFault,
@@ -246,6 +256,7 @@ extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64
 }
 
 /// Ran when a general protection fault occurs.
+#[inline(never)]
 extern "x86-interrupt" fn gpf_handler(frame: IntStackFrame, err_code: u64) {
     super::rbod::rbod(
         ErrorCode::GeneralProtectionFault,
@@ -286,17 +297,28 @@ extern "C" fn double_fault_handler() -> ! {
         "mov rdi, rsp",                // store stack frame in first arg
         "call print_df_info",          // print error info
         "mov rax, 0xDFDFDFDFDFDFDFDF", // pseudo error message which can be viewed in QEMU
-        "hlt",                         // save power by halting
-        "jmp double_fault_handler"     // halt can get bypassed by a NMI or System Management Mode
+        "call hang",                   // no turning back now
     );
 }
 
 /// Used by the double fault handler to print an error message.
 #[unsafe(no_mangle)]
+#[allow(unused)]
 extern "C" fn print_df_info(frame: IntStackFrame) {
+    // The last test ran by tests::run_tests, checks that a stack overflow
+    // causes a double fault, so we need to exit running tests in it's handler
+    #[cfg(test)]
+    {
+        use core::any::type_name_of_val;
+
+        println!("test {} - passed", type_name_of_val(&double_fault_handler));
+        println!("\nIt looks like you didn't break anything!");
+        exit_qemu(false);
+    }
+
     // Safety: Whoever was holding that buffer is not going to be returned to anytime soon
-    unsafe { vga::BUFFER_HELD.store(false) }
-    vga::clear();
+    unsafe { buffers::BUFFER_HELD.store(false) }
+    buffers::clear();
 
     println!(
         "Whoops... looks like a double fault!\n\nHere's some info about it:\n{frame}\n
@@ -379,4 +401,23 @@ extern "C" fn rtc_ret() {
         "pop dx",
         "iretq" // return from int
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests that various interrupt descriptors point to their respective handlers.
+    #[test_case]
+    fn descriptors_point_to_handlers() {
+        let idt = IDT.read().unwrap().0;
+        assert_eq!(idt[8].ptr(), double_fault_handler as Handler);
+        assert_eq!(idt[13].ptr(), gpf_handler as Handler);
+        assert_eq!(idt[14].ptr(), page_fault_handler as Handler);
+        assert_eq!(idt[IRQ_START + 0].ptr(), timer_handler as Handler);
+        assert_eq!(idt[IRQ_START + 1].ptr(), key_pressed_wrapper as Handler);
+        assert_eq!(idt[IRQ_START + 7].ptr(), dummy_handler as Handler);
+        assert_eq!(idt[IRQ_START + 8].ptr(), rtc_handler as Handler);
+        assert_eq!(idt[IRQ_START + 15].ptr(), dummy_handler as Handler);
+    }
 }

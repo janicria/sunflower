@@ -1,6 +1,8 @@
 [alias]
 b = "bootimage"
 paperclip = "clippy -F bootimage --release"
+diba = "did-i-break-anything"
+did-i-break-anything = "test -F bootimage --release"
 run-debug = "run -r -F bootimage,debug_info -- -monitor stdio"
 run-nosound = "run -r --features bootimage"
 run-pipewire = "run -r -F bootimage -- -audio driver=pipewire,model=virtio,id=speaker --machine pcspk-audiodev=speaker"

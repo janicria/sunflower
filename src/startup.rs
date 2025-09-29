@@ -46,6 +46,8 @@ pub fn gdt_init() -> bool {
 ///
 /// The task must **NEVER** assume interrupts to either be set or cleared when ran,
 /// and must not rely on any kernel services which depend on their respective INIT static being set.
+/// 
+/// Aborts testing if tests are being ran and the task fails.
 #[inline(never)]
 pub fn run<E>(name: &str, task: fn() -> Result<(), E>)
 where
@@ -65,6 +67,7 @@ pub fn print_ok(task: &str) {
 }
 
 /// Prints `[ ERR ] <task>: <err>`.
+/// Fails the 'test' if tests are being ran.
 fn print_err<E>(task: &str, err: E)
 where
     E: Display,
@@ -72,4 +75,7 @@ where
     print!("[");
     print!(fg = LightRed, " ERR");
     println!(" ] {task}: {err}");
+
+    #[cfg(test)]
+    panic!("startup task {task} failed")
 }

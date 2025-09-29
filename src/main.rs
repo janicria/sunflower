@@ -1,8 +1,10 @@
 #![no_std]
 #![no_main]
+#![test_runner(tests::run_tests)]
+#![reexport_test_harness_main = "tests"]
 #![allow(clippy::unusual_byte_groupings, clippy::deref_addrof)]
 #![forbid(static_mut_refs)]
-#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr)]
+#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks)]
 
 /// Allows writing to the VGA text buffer
 #[macro_use]
@@ -29,6 +31,10 @@ mod startup;
 /// Handles system information.
 mod sysinfo;
 
+/// Handles running tests and writing to serial ports.
+#[cfg(test)]
+mod tests;
+
 /// Handles the PIT.
 mod time;
 
@@ -37,7 +43,7 @@ mod time;
 compile_error!(
     "Please build sunflower using `cargo b` or `cargo bootimage` 
 run it using `cargo run-nosound` `cargo run-pipewire` or `cargo run-pulseaudio` 
-and use clippy via `cargo paperclip`"
+use clippy via `cargo paperclip` and test using `cargo did-i-break-anything`"
 );
 
 /// The kernel entry point.
@@ -57,9 +63,25 @@ pub unsafe extern "C" fn kmain() -> ! {
     startup::run("Checked CPUID", sysinfo::check_cpuid);
     startup::run("Finished RTC sync", time::wait_for_rtc_sync);
 
+    #[cfg(test)]
+    tests();
+
     vga::draw_topbar("Sunflower");
     println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
-    vga::update_vga_cursor();
+    vga::cursor::update_visual_pos();
     speaker::play_chime();
     interrupts::kbd_poll_loop()
+}
+
+/// Hangs forever, never returning.
+/// Only use this when you have to.
+#[unsafe(no_mangle)]
+#[unsafe(naked)]
+extern "C" fn hang() -> ! {
+    core::arch::naked_asm!(
+        "cli",                         // disable ints to make sure nothing else is run
+        "mov rbx, 0xDeadDeadDeadDead", // pseudo error message which can be viewed in QEMU
+        "hlt",                         // save power by halting
+        "jmp hang"                     // halt can get bypassed by a NMI or System Management Mode
+    )
 }

@@ -6,18 +6,20 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/janicria/sunflower"
 
-[profile.release]
-panic = "abort"
-
 [dependencies]
 bootloader = "0.9"
 pc-keyboard = "0.8.0"
 ps2 = "0.2.0"
+uart_16550 = "0.4.0"
 
 [features]
 disable_enter = [] # Disables the enter key from being pressed
 bootimage = [] # Flag set automatically by bootimage and runner, must be set to build
-debug_info = [] # Prints a lot of debugging info when running startup tasks
+debug_info = [] # Enables the dbg_info! and warn! macros
 
 [package.metadata.bootimage]
 build-command = ["build", "--release", "--features", "bootimage"]
+run-command = ["qemu-system-x86_64", "-drive", "format=raw,file={}", "-device", "isa-debug-exit,iobase=0xf4,iosize=1"]
+test-args = ["-display", "none", "-serial", "stdio"]
+test-success-exit-code = 133 # QEMU translates 0x42 into ((0x42 << 1) | 1) = 133
+test-timeout = 30 # Timeout after 30s, as some tests 'fail' by looping forever 

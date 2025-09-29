@@ -1,5 +1,6 @@
 use crate::{
-    time, vga,
+    time,
+    vga::cursor,
     wrappers::{InitLater, LoadRegisterError, TableDescriptor},
 };
 use core::{arch::asm, convert::Infallible, fmt::Display, hint, mem};
@@ -22,6 +23,8 @@ mod rbod;
 pub static IDT: InitLater<Idt> = InitLater::uninit();
 
 /// The Interrupt Descriptor Table.
+#[derive(Debug)]
+#[repr(transparent)]
 pub struct Idt([InterruptDescriptor; 256]);
 
 /// The interrupt stack frame.
@@ -88,7 +91,7 @@ pub fn kbd_poll_loop() -> ! {
 
         // Update the cursor every 100 ms
         if time::get_time().is_multiple_of(10) {
-            vga::update_vga_cursor();
+            cursor::update_visual_pos();
         }
     }
 }
@@ -111,5 +114,18 @@ fn triple_fault() {
         let idt = mem::transmute::<&Idt, &'static Idt>(&Idt::invalid()); // get static IDT
         idt.load(); // load the invalid & local IDT
         asm!("int 99"); //  gpf -> double fault -> triple fault
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests that various structs passed to the CPU are the size that the CPU expects them.
+    #[test_case]
+    fn structs_have_the_right_size() {
+        assert_eq!(size_of::<IntStackFrame>(), 40);
+        assert_eq!(size_of::<InterruptDescriptor>(), 16);
+        assert_eq!(size_of::<Idt>(), size_of::<InterruptDescriptor>() * 256);
     }
 }
