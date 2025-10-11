@@ -1,4 +1,5 @@
 use crate::{
+    floppy::{self},
     gdt::{self, Gdt},
     interrupts::{self, Idt},
     startup,
@@ -8,13 +9,13 @@ use crate::{
 use core::{arch::asm, fmt::Display};
 
 /// The current version of the sunflower kernel.
-static VERSION_LONG: &str = "SFK-00-Development-06";
+static VERSION_LONG: &str = "SFK-00-Development-07";
 
 /// A shortened version of the kernel's version.
-static VERSION_SHORT: &str = "SFK-Dev-06";
+static VERSION_SHORT: &str = "SFK-Dev-07";
 
 /// Message updated each patch.
-static PATCH_QUOTE: &str = "SFK > WinNT";
+static PATCH_QUOTE: &str = "Floppies!  ";
 
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]
@@ -100,6 +101,12 @@ pub struct SystemInfo {
     pub cpu_vendor: &'static str,
     pub debug: bool,
 
+    // Floppy
+    pub floppy_offset: Result<&'static u16, InitError<u16>>,
+    pub floppy_space: Result<&'static u16, InitError<u16>>,
+    pub floppy_drive: u8,
+    pub fdc_init: bool,
+
     // Time
     pub time: u64,
     pub time_secs: u64,
@@ -131,6 +138,11 @@ impl SystemInfo {
             cpu_vendor: get_cpuid().unwrap_or("Unknown"),
             debug: cfg!(feature = "debug_info"),
 
+            floppy_offset: floppy::BASE_OFFSET.read(),
+            floppy_space: floppy::FLOPPY_SPACE.read(),
+            floppy_drive: floppy::DRIVE_ONE.load() as u8,
+            fdc_init: startup::FLOPPY_INIT.load(),
+
             time,
             time_secs: time / 100,
             date: time::LAUNCH_TIME.read(),
@@ -150,16 +162,6 @@ impl SystemInfo {
 
 impl Display for SystemInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        /// Returns the value in register `reg`.
-        macro_rules! reg {
-    ($name: ident) => {{
-        let reg: u64;
-        // Safety: Just copying over a register
-        unsafe { core::arch::asm!(concat!("mov {}, ", stringify!($name)), out(reg) reg, options(preserves_flags, nostack)) }
-        reg
-     }};
-}
-
         // Write the first few fields
         write!(
             f,
@@ -181,7 +183,6 @@ Launch time: ",
             f,
             "Uptime: {} ({}h {}m {}s)
 
-Flags
 Disable enter: {}
 PIC initialised: {}
 PIT initialised: {}
@@ -202,35 +203,17 @@ IDT init: {} with {}\n",
             self.idt_descriptor,
         )?;
 
-        // Write registers
+        // Write floppy
         write!(
             f,
-            "\nRegisters
-RAX={:x} RBX={:x} RCX={:x} RDX={:x}
-RSP={:x} RSI={:x} RDI={:x} RBP={:x}
-R8 ={:x} R9 ={:x} R10={:x} R11={:x} 
-R12={:x} R13={:x} R14={:x} R15={:x} 
-CS={:x} DS={:x} ES={:x} DS={:x}",
-            reg!(rax),
-            reg!(rbx),
-            reg!(rcx),
-            reg!(rdx),
-            reg!(rsp),
-            reg!(rsi),
-            reg!(rdi),
-            reg!(rsi),
-            reg!(rbp),
-            reg!(r8),
-            reg!(r9),
-            reg!(r10),
-            reg!(r11),
-            reg!(r13),
-            reg!(r14),
-            reg!(r15),
-            reg!(cs),
-            reg!(ds),
-            reg!(es),
-            reg!(ds)
+            "\nFloppy offset: 0x{:X}
+Floppy space: {} kB,
+Floppy drive number: {}
+Floppy init: {}",
+            self.floppy_offset.as_ref().unwrap_or(&&0),
+            self.floppy_space.as_ref().unwrap_or(&&0),
+            self.floppy_drive,
+            self.fdc_init
         )
     }
 }

@@ -1,6 +1,7 @@
 #[cfg(test)]
 use crate::tests::exit_qemu;
 use crate::{
+    floppy::motor,
     interrupts::{IntStackFrame, idt::ERR_CODE},
     ports::{self, Port},
     speaker,
@@ -82,6 +83,7 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     time::set_waiting_char(false);
     time::WAITING_CHAR.store(false, Ordering::Relaxed);
     speaker::stop(); // in case anything was playing, prevent it from playing forever
+    motor::force_disable(); // in case it was on
 
     // Safety: Whatever was using the buffer will never be returned to from rbod
     unsafe { buffers::BUFFER_HELD.store(false) };
@@ -89,7 +91,7 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     buffers::clear();
 
     // Begin the printing
-    print::write_char(VGAChar::TOPLEFT_CORNER, Color::Grey, Color::Black);
+    print::write_char(VGAChar::TOPLEFT_CORNER, Color::White, Color::Black);
     print!("------------------------------------------------------------------------------");
     print::write_char(VGAChar::TOPRIGHT_CORNER, Color::Grey, Color::Black);
     print!(

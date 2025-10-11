@@ -28,9 +28,9 @@ pub fn play(freq: u32) {
         ports::writeb(Port::PITChannel2, (freq >> 8) as u8); // high byte
 
         // If the play bits are not set, enable them
-        let val = ports::readb(Port::Speaker);
+        let val = ports::readb(Port::PCSpeaker);
         if val != val | PLAY_BITS {
-            ports::writeb(Port::Speaker, val | PLAY_BITS);
+            ports::writeb(Port::PCSpeaker, val | PLAY_BITS);
         }
     }
 }
@@ -40,8 +40,8 @@ pub fn stop() {
     // Safety: We're just disabling the play bits
     unsafe {
         // Disable the play bits
-        let val = ports::readb(Port::Speaker) & !PLAY_BITS;
-        ports::writeb(Port::Speaker, val);
+        let val = ports::readb(Port::PCSpeaker) & !PLAY_BITS;
+        ports::writeb(Port::PCSpeaker, val);
     }
 }
 

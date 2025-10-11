@@ -22,6 +22,11 @@ pub static PIT_INIT: UnsafeFlag = UnsafeFlag::new(false);
 /// Setting this flag to true too early causes kbd_handler to break the keyboard init function.
 pub static KBD_INIT: UnsafeFlag = UnsafeFlag::new(false);
 
+/// Whether or not the floppy controller has been initialised yet.
+/// # Flag
+/// Falsely setting this flag to true causes services in `floppy::disk` to assume that they've been initialised.
+pub static FLOPPY_INIT: UnsafeFlag = UnsafeFlag::new(false);
+
 /// Returns true if the PIC has been initialised.
 pub fn pic_init() -> bool {
     PIC_INIT.load()

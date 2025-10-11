@@ -12,7 +12,7 @@ static GDT_ENTRIES: usize = 5;
 pub static GDT: InitLater<Gdt> = InitLater::uninit();
 
 /// The size of the emergency stack, in bytes.
-static STACK_SIZE: u64 = 4096 * 5;
+static STACK_SIZE: u64 = 2048;
 
 /// The emergency stack given to IST 1.
 static mut STACK: [u8; STACK_SIZE as usize] = [0; STACK_SIZE as usize];
@@ -205,7 +205,7 @@ pub fn load_gdt() -> Result<(), LoadRegisterError<Gdt>> {
 
 /// Returns the current value in the GDT register.
 pub fn gdt_register() -> TableDescriptor<Gdt> {
-    let mut gdt = TableDescriptor::uninit();
+    let mut gdt = TableDescriptor::invalid();
     // Safety: We're just storing a value
     unsafe { asm!("sgdt [{}]", in(reg) (&mut gdt), options(preserves_flags, nostack)) };
     gdt

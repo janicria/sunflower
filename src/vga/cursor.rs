@@ -69,19 +69,25 @@ impl CursorPos {
 
 /// Updates the visual position of the vga cursor on the screen using `CursorPos`.
 pub fn update_visual_pos() {
+    /// Index into the register for the first byte for the cursor position.
+    static CURSOR_POS_REG_LOW: u8 = 0x0E;
+
+    /// Index into the register for the second byte for the cursor position.
+    static CURSOR_POS_REG_HIGH: u8 = 0x0F;
+
     CursorPos::clamp_row_col();
     let (row, col) = CursorPos::row_col();
     let pos = row as u16 * BUFFER_WIDTH as u16 + col as u16;
 
     // Safety: The cursor is forced into valid values due to CursorPos::clamp_row_col
     unsafe {
-        // tell vga we're going to be giving it the first byte of the pos
-        ports::writeb(Port::VGAIndexRegister0x3D4, 0x0E);
-        ports::writeb(Port::VgaCursorPos, (pos >> 8) as u8);
+        // Send the low / first byte
+        ports::writeb(Port::VGASelectorC, CURSOR_POS_REG_LOW);
+        ports::writeb(Port::VGARegisterC, (pos >> 8) as u8);
 
-        // then that we're giving it the second byte
-        ports::writeb(Port::VGAIndexRegister0x3D4, 0x0F);
-        ports::writeb(Port::VgaCursorPos, pos as u8);
+        // Send the high / second byte
+        ports::writeb(Port::VGASelectorC, CURSOR_POS_REG_HIGH);
+        ports::writeb(Port::VGARegisterC, pos as u8);
     }
 }
 

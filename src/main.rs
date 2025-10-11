@@ -2,13 +2,20 @@
 #![no_main]
 #![test_runner(tests::run_tests)]
 #![reexport_test_harness_main = "tests"]
-#![allow(clippy::unusual_byte_groupings, clippy::deref_addrof)]
-#![forbid(static_mut_refs)]
+#![forbid(static_mut_refs)] // clippy::undocumented_unsafe_blocks)]
 #![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks)]
+#![allow(
+    clippy::unusual_byte_groupings,
+    clippy::deref_addrof,
+    clippy::identity_op
+)]
 
 /// Allows writing to the VGA text buffer
 #[macro_use]
 mod vga;
+
+/// Allows reading and writing to floppy disk drives.
+mod floppy;
 
 /// Handles the InitLater and UnsafeFlag wrappers.
 mod wrappers;
@@ -62,6 +69,7 @@ pub unsafe extern "C" fn kmain() -> ! {
     startup::run("Initialised keyboard", interrupts::init_kbd);
     startup::run("Checked CPUID", sysinfo::check_cpuid);
     startup::run("Finished RTC sync", time::wait_for_rtc_sync);
+    startup::run("Initialised floppy drive", floppy::init);
 
     #[cfg(test)]
     tests();
@@ -70,6 +78,7 @@ pub unsafe extern "C" fn kmain() -> ! {
     println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
     vga::cursor::update_visual_pos();
     speaker::play_chime();
+
     interrupts::kbd_poll_loop()
 }
 

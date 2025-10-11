@@ -1,7 +1,8 @@
 use core::{
     any::type_name,
     cell::SyncUnsafeCell,
-    fmt::Display,
+    error::Error,
+    fmt::{Debug, Display},
     marker::PhantomData,
     mem::MaybeUninit,
     ptr,
@@ -80,6 +81,8 @@ impl<T> InitError<T> {
         }
     }
 }
+
+impl<T: Debug> Error for InitError<T> {}
 
 /// Allows being passed to startup::run
 impl<T> Display for InitError<T> {
@@ -165,8 +168,8 @@ impl<T> TableDescriptor<T> {
         }
     }
 
-    /// Returns an uninitialised descriptor.
-    pub fn uninit() -> Self {
+    /// Returns an invalid descriptor.
+    pub fn invalid() -> Self {
         TableDescriptor {
             size: 0,
             offset: ptr::null(),

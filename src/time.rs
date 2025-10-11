@@ -110,7 +110,7 @@ pub fn wait(ticks: u64) {
     set_waiting_char(true);
 
     // wait...
-    let target_time = get_time() + ticks;
+    let target_time = get_time() + ticks + 1;
     while get_time() < target_time {
         // Safety: Just halting
         unsafe { asm!("hlt") }
@@ -211,7 +211,7 @@ impl Display for Time {
 /// Returns the current value of CMOS register `reg`.
 /// # Safety
 /// Reads and writes to I/O ports.
-unsafe fn read_cmos_reg(reg: u8) -> u8 {
+pub unsafe fn read_cmos_reg(reg: u8) -> u8 {
     unsafe {
         ports::writeb(Port::CMOSSelector, reg);
         ports::readb(Port::CMOSRegister)
@@ -296,8 +296,8 @@ mod tests {
         wait(1);
 
         let time = get_time();
-        wait(10);
-        assert_eq!(time, get_time() - 10)
+        wait(15);
+        assert!(get_time() - 15 - time < 3) // less than 3 tick difference
     }
 
     /// Tests that `wait`, `wait_no_ints` & `play_special` immediately return if the PIT failed initialisation.

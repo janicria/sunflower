@@ -1,5 +1,15 @@
 # Sunflower changelog
 
+## Development 07
+##### Floppies!! 11/10/25
+
+- Allowed reading from floppies via the `floppy` module.
+- Fully redid the `pic` module (it was really old and terrible)
+- Forced `writeb` & `readb` to always use dummy waits
+- Improved the documentation for `ports::Port`
+- Fixed `interrupts::triple_fault` so that it actually triple faults
+- Decreased the emergency stack's size
+
 ## Development 06
 ##### Tests & better vga 29/9/25
 

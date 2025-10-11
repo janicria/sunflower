@@ -3,7 +3,7 @@ use crate::{
     vga::cursor,
     wrappers::{InitLater, LoadRegisterError, TableDescriptor},
 };
-use core::{arch::asm, convert::Infallible, fmt::Display, hint, mem};
+use core::{arch::asm, convert::Infallible, fmt::Display, hint};
 use idt::InterruptDescriptor;
 use keyboard::KbdInitError;
 
@@ -13,11 +13,14 @@ mod idt;
 /// Basic PS/2 keyboard input detector.
 mod keyboard;
 
-/// Loads PIC and allows sending EOI.
+/// Loads both PICs and allows sending EOI commands.
 mod pic;
 
 /// Handles exceptions and panics.
 mod rbod;
+
+/// Where IRQ vectors start in the IDT.
+static IRQ_START: usize = 32;
 
 /// The loaded IDT.
 pub static IDT: InitLater<Idt> = InitLater::uninit();
@@ -66,7 +69,7 @@ pub fn load_idt() -> Result<(), LoadRegisterError<Idt>> {
 
 /// Returns the current value in the GDT register.
 pub fn idt_register() -> TableDescriptor<Idt> {
-    let mut idt = TableDescriptor::uninit();
+    let mut idt = TableDescriptor::invalid();
     // Safety: We're just storing a value
     unsafe { asm!("sidt [{}]", in(reg) (&mut idt), options(preserves_flags, nostack)) };
     idt
@@ -111,9 +114,9 @@ pub fn cli() {
 fn triple_fault() {
     // Safety: We're deliberately being very unsafe here
     unsafe {
-        let idt = mem::transmute::<&Idt, &'static Idt>(&Idt::invalid()); // get static IDT
-        idt.load(); // load the invalid & local IDT
-        asm!("int 99"); //  gpf -> double fault -> triple fault
+        let descriptor = TableDescriptor::<Idt>::invalid();
+        asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax)); // load invalid descriptor
+        asm!("int 0x42") //  gpf -> double fault -> triple fault
     }
 }
 

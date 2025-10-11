@@ -1,5 +1,5 @@
 use super::{
-    Idt, IntStackFrame,
+    IRQ_START, Idt, IntStackFrame,
     rbod::{self, ErrCodeHandler, ErrorCode, RbodErrInfo},
 };
 use crate::{gdt, vga::buffers, wrappers::TableDescriptor};
@@ -11,9 +11,6 @@ use core::{
 };
 
 type Handler = u64;
-
-/// Where IRQ vectors start in the IDT.
-static IRQ_START: usize = 32;
 
 /// Error code argument passed to cont and rbod.
 #[unsafe(no_mangle)]
@@ -100,7 +97,7 @@ macro_rules! rbod_wrapper {
 impl Idt {
     /// Creates a new, loaded table, with all it's required entries set.
     /// This function only creates an IDT, and doesn't load it.
-    #[allow(clippy::fn_to_numeric_cast, clippy::identity_op)]
+    #[allow(clippy::fn_to_numeric_cast)]
     pub fn new() -> Self {
         let mut idt = Idt([InterruptDescriptor::default(); 256]);
 
@@ -117,16 +114,12 @@ impl Idt {
         idt.set_handler(14, None, page_fault_handler as Handler);
         idt.set_handler(IRQ_START + 0, None, timer_handler as Handler);
         idt.set_handler(IRQ_START + 1, None, key_pressed_wrapper as Handler);
+        idt.set_handler(IRQ_START + 6, None, floppy_handler as Handler);
         idt.set_handler(IRQ_START + 7, None, dummy_handler as Handler);
         idt.set_handler(IRQ_START + 8, None, rtc_handler as Handler);
         idt.set_handler(IRQ_START + 15, None, dummy_handler as Handler);
 
         idt
-    }
-
-    /// Returns an invalid IDT.
-    pub const fn invalid() -> Self {
-        Idt([InterruptDescriptor::invalid(); 256])
     }
 
     /// Sets the table's entry with id `entry_id`
@@ -141,9 +134,8 @@ impl Idt {
     pub unsafe fn load(&'static self) -> TableDescriptor<Idt> {
         let descriptor = TableDescriptor::new(self);
 
-        unsafe {
-            asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax, nostack));
-        }
+        // Safety: The caller must ensure that the IDT is valid
+        unsafe { asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax, nostack)) }
 
         descriptor
     }
@@ -175,19 +167,6 @@ pub struct InterruptDescriptor {
 }
 
 impl InterruptDescriptor {
-    /// Creates a new, empty descriptor.
-    const fn invalid() -> Self {
-        InterruptDescriptor {
-            offset_low: 0,
-            selector: 0,
-            ist: 0,
-            attributes: 0,
-            offset_middle: 0,
-            offset_high: 0,
-            _reserved: 0,
-        }
-    }
-
     /// Returns a new descriptor using `handler` as it's offset and `ist` for the IST.
     fn new(offset_ptr: Handler, ist: u8) -> Self {
         /// Present = 1, dpl = 0, must be zero = 0, gate type = interrupt,
@@ -195,7 +174,9 @@ impl InterruptDescriptor {
 
         // Force the ist to be only 3 bits, as remaining bits are reserved
         if ist > 0b111 {
-            warn!("attempted creating an int descriptor with an ist > 7, which will be truncated!");
+            warn!(
+                "attempted creating an int descriptor with an ist > 7 ({ist}), which will be truncated!"
+            );
         }
         let ist = ist & 0b111;
 
@@ -220,7 +201,8 @@ impl InterruptDescriptor {
     }
 }
 
-/// Immediately returns.
+/// Immediately returns as a really terrible way of handling spurious IRQs.
+/// Since IRQs 7 & 15 aren't used by sunflower anyways though, it's not that bad.
 #[inline(never)]
 extern "x86-interrupt" fn dummy_handler(_frame: IntStackFrame) {}
 
@@ -331,8 +313,9 @@ Since double faults are pretty nasty, sunflower can't trust any kernel services 
 extern "C" fn timer_handler() -> ! {
     naked_asm!(
         pushregs!(),
-        "lock inc qword ptr [TIME]", // increase time
-        "mov rdi, 32",               // timer eoi
+        "lock inc qword ptr [TIME]",  // increase time
+        "call dec_floppy_motor_time", // in floppy.rs
+        "mov rdi, 0",                 // timer IRQ as first argument
         "call eoi",
         popregs!(),
         "iretq",
@@ -345,8 +328,20 @@ extern "C" fn key_pressed_wrapper() -> ! {
     naked_asm!(
         pushregs!(),
         "call kbd_handler", // Safety: it's safe to read from port 0x60 in the key pressed interrupt
-        "mov rdi, 33",      // key pressed eoi
+        "mov rdi, 1",       // key pressed IRQ as first argument
         "call eoi",         // send eoi command
+        popregs!(),
+        "iretq",
+    );
+}
+
+/// Ran when the floppy IRQ occurs.
+#[unsafe(naked)]
+extern "C" fn floppy_handler() -> ! {
+    naked_asm!(
+        pushregs!(),
+        "mov rdi, 6", // floppy IRQ as first argument
+        "call eoi",
         popregs!(),
         "iretq",
     );
@@ -394,9 +389,9 @@ extern "C" fn update_ended() {
 #[unsafe(no_mangle)]
 extern "C" fn rtc_ret() {
     naked_asm!(
-        "mov rdi, 40", // RTC eoi
-        "call eoi",    // send eoi cmd
-        popregs!(),    // restore regs
+        "mov rdi, 8", // RTC IRQ as first argument
+        "call eoi",   // send eoi cmd
+        popregs!(),   // restore regs
         "pop ax",
         "pop dx",
         "iretq" // return from int

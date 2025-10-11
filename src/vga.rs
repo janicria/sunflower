@@ -45,11 +45,12 @@ pub fn init() -> Result<(), Infallible> {
 /// Title must be exactly 9 bytes long.
 pub fn draw_topbar(title: &'static str) {
     interrupts::cli();
+    let len = title.len();
 
     // Force title to be nine bytes
-    if title.len() != 9 {
+    if len != 9 {
         warn!(
-            "attempted setting topbar title with a len that != 9, it will be truncated or discarded to preserve formatting!"
+            "attempted setting topbar title with an invalid len ({len}), it will be truncated or discarded to preserve formatting!"
         );
     }
     let title = title.split_at_checked(9).unwrap_or(("Bad Title", "")).0;
