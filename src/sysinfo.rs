@@ -9,13 +9,13 @@ use crate::{
 use core::{arch::asm, fmt::Display};
 
 /// The current version of the sunflower kernel.
-static VERSION_LONG: &str = "SFK-00-Development-07";
+static VERSION_LONG: &str = "SFK-00-Development-08";
 
 /// A shortened version of the kernel's version.
-static VERSION_SHORT: &str = "SFK-Dev-07";
+static VERSION_SHORT: &str = "SFK-Dev-08";
 
 /// Message updated each patch.
-static PATCH_QUOTE: &str = "Floppies!  ";
+static PATCH_QUOTE: &str = "floppyfs   ";
 
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]

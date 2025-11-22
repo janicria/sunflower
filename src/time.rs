@@ -158,8 +158,13 @@ pub fn wait_no_ints(ticks: u64) {
     set_waiting_char(false);
 }
 
+/// Returns if a timer going for at least `timeout` ticks starting at `start` is still running.
+pub fn timer(start: u64, timeout: u64) -> bool {
+    start + timeout > get_time()
+}
+
 /// Second-precise time value.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Time {
     /// The current year, 0-99
     year: u8,

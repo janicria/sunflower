@@ -1,3 +1,5 @@
+use ps2::Controller;
+
 #[cfg(test)]
 use crate::tests::exit_qemu;
 use crate::{
@@ -193,25 +195,39 @@ fn check_keyboard() {
     /// The last scancode read from port 0x60.
     static PREV_SCANCODE: AtomicU8 = AtomicU8::new(0);
 
-    // Scancodes in set 2.
-    static ONE: u8 = 0x16;
-    static ONE_KEYPAD: u8 = 0x69;
-    static TWO: u8 = 0x1E;
-    static TWO_KEYPAD: u8 = 0x72;
-    static THREE: u8 = 0x26;
-    static THREE_KEYPAD: u8 = 0x7A;
+    /// How many 200 ms ticks the current key has been held for.
+    static KEY_HELD_TIMER: AtomicU8 = AtomicU8::new(0);
 
-    // Return if the previous scancode is the same as the current.
+    /// How long until we consider a key to be released, approx 1.6s.
+    /// We can't just check for the key released scancode
+    /// as this function is only called every 200 ms.
+    const KEY_HELD_TIMEOUT: u8 = 8;
+
+    /// Scancodes in set 2.
+    const ONE: u8 = 0x16;
+    const ONE_KEYPAD: u8 = 0x69;
+    const TWO: u8 = 0x1E;
+    const TWO_KEYPAD: u8 = 0x72;
+    const THREE: u8 = 0x26;
+    const THREE_KEYPAD: u8 = 0x7A;
+
+    // Safety: Port 0x60 is fine to read as it just contains the last scancode.
     let scancode = unsafe { ports::readb(Port::PS2Data) };
-    if PREV_SCANCODE.swap(scancode, Ordering::Relaxed) == scancode {
-        return;
-    }
 
+    if PREV_SCANCODE.swap(scancode, Ordering::Relaxed) == scancode
+        && KEY_HELD_TIMER.fetch_add(1, Ordering::Relaxed) < KEY_HELD_TIMEOUT
+    {
+        // Safety: Just clearing the last scancode if the input buffer isn't full
+        unsafe { _ = Controller::new().write_data(0) }
+        return; // return if a key is still being held
+    }
+    KEY_HELD_TIMER.store(0, Ordering::Relaxed);
+    
     // Run corresponding action
     if scancode == ONE || scancode == ONE_KEYPAD {
         super::triple_fault();
     } else if scancode == TWO || scancode == TWO_KEYPAD {
-        buffers::swap()
+        buffers::swap();
     } else if scancode == THREE || scancode == THREE_KEYPAD {
         speaker::play_song();
     }

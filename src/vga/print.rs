@@ -145,19 +145,15 @@ pub fn write_char(byte: u8, fg: Color, bg: Color) {
             let (row, col) = CursorPos::row_col();
             let newline = col >= BUFFER_WIDTH - 1;
 
-            // Allow text to wrap around screen
-            if newline {
-                self::newline();
-            }
-
             // Print character
             if let Some(mut buf) = YoinkedBuffer::try_yoink() {
                 buf.buffer()[row as usize][col as usize] = VGAChar::new(byte, fg, bg);
+            }
 
-                // Increase column if not newline
-                if !newline {
-                    CursorPos::set_col(col + 1);
-                }
+            if newline {
+                self::newline();
+            } else {
+                CursorPos::set_col(col + 1);
             }
         }
     }

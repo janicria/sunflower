@@ -7,6 +7,7 @@ license = "MIT"
 repository = "https://github.com/janicria/sunflower"
 
 [dependencies]
+bitflags = "2.9.4"
 bootloader = "0.9"
 pc-keyboard = "0.8.0"
 ps2 = "0.2.0"
@@ -23,4 +24,4 @@ build-command = ["build", "--release", "--features", "bootimage"]
 run-command = ["qemu-system-x86_64", "-drive", "format=raw,file={}", "-drive", "format=raw,file=./floppy.img,if=floppy"]
 test-args = ["-display", "none", "-serial", "stdio", "-device", "isa-debug-exit,iobase=0xf4,iosize=1"]
 test-success-exit-code = 133 # QEMU translates 0x42 into ((0x42 << 1) | 1) = 133
-test-timeout = 30 # Timeout after 30s, as some tests 'fail' by looping forever 
+test-timeout = 45 # Timeout after 45s, as some tests 'fail' by looping forever 

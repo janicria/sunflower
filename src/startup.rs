@@ -51,9 +51,8 @@ pub fn gdt_init() -> bool {
 ///
 /// The task must **NEVER** assume interrupts to either be set or cleared when ran,
 /// and must not rely on any kernel services which depend on their respective INIT static being set.
-/// 
+///
 /// Aborts testing if tests are being ran and the task fails.
-#[inline(never)]
 pub fn run<E>(name: &str, task: fn() -> Result<(), E>)
 where
     E: Display,

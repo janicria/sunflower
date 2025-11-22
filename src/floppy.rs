@@ -28,7 +28,7 @@ pub static FLOPPY_SPACE: InitLater<u16> = InitLater::uninit();
 pub static DRIVE_ONE: UnsafeFlag = UnsafeFlag::new(false);
 
 /// Timeout until we assume a command failed, in kernel ticks.
-static TIMEOUT: u64 = 500;
+static TIMEOUT: u64 = 30;
 
 /// The number of retries before we assume the controller is unusable.
 static RETRIES: u8 = 5;
@@ -53,17 +53,6 @@ enum FloppyPort {
     /// The config control register, write only
     /// [`CfgCtrl`](https://wiki.osdev.org/Floppy_Disk_Controller#CCR_and_DSR)
     ConfigCtrlRegister = 7,
-}
-
-/// Size and space information about a floppy drive.
-struct FloppyInfo {
-    /// The amount of space on the drive, in KB
-    space: u16,
-
-    /// The physical size of the floppy.
-    /// true  - 5.25 inch / 13.335 cm
-    /// false - 3.50 inch / 8.89 cm
-    five_inch: bool,
 }
 
 /// The main error type used by the floppy driver.
@@ -92,6 +81,17 @@ pub enum FloppyError {
     /// A specific error occurred in (re)initialisation.
     #[error("{0}")]
     Init(&'static str),
+}
+
+/// Size and space information about a floppy drive.
+struct FloppyInfo {
+    /// The amount of space on the drive, in KB
+    space: u16,
+
+    /// The physical size of the floppy.
+    /// true  - 5.25 inch / 13.335 cm
+    /// false - 3.50 inch / 8.89 cm
+    five_inch: bool,
 }
 
 impl FloppyPort {

@@ -1,6 +1,6 @@
-use core::sync::atomic::{AtomicU16, AtomicU8, Ordering};
+use super::{DRIVE_ONE, FloppyPort};
 use crate::{ports, time, wrappers::InitError};
-use super::{FloppyPort, DRIVE_ONE};
+use core::sync::atomic::{AtomicU8, AtomicU16, Ordering};
 
 /// The current state of the floppy's motor.
 static MOTOR_STATE: AtomicU8 = AtomicU8::new(MOTOR_OFF);
@@ -16,7 +16,6 @@ const MOTOR_DISABLING: u8 = 1;
 
 /// The floppy's motor is off.
 const MOTOR_OFF: u8 = 2;
-
 
 /// Enables the floppy's motor if it was disabled.
 pub fn enable_motor() -> Result<(), InitError<u16>> {
@@ -100,7 +99,6 @@ pub extern "C" fn decrease_motor_time() {
         MOTOR_STATE.store(MOTOR_OFF, Ordering::Relaxed);
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -12,10 +12,10 @@ pub enum FloppyCommand {
     Specify = 3,
 
     /// Write data to the disk
-    WriteDataWithFlags = 5 | disk::RW_FLAGS,
+    WriteDataWithFlags = 5 | disk::MFM_BIT,
 
     /// Read data from the disk
-    ReadDataWithFlags = 6 | disk::RW_FLAGS,
+    ReadDataWithFlags = 6 | disk::MFM_BIT,
 
     /// Recalibrate, seeks to cylinder 0
     Recal = 7,
@@ -38,7 +38,7 @@ pub enum FloppyCommand {
 pub enum FifoError {
     #[error("read byte from the FIFO port at the wrong time")]
     Read,
-    #[error("wrote byte {0:X} to the FIFO port at the wrong time")]
+    #[error("wrote byte 0x{0:X} to the FIFO port at the wrong time")]
     Write(u8),
 }
 
@@ -87,16 +87,17 @@ pub enum SenseIntState {
 #[inline(never)]
 pub unsafe fn send_byte(byte: u8) -> Result<(), FloppyError> {
     let start_time: u64 = time::get_time();
-    motor::enable_motor()?;
-
     while start_time + TIMEOUT > time::get_time() {
+        motor::enable_motor()?;
+
         // Check if MSR = 10XXXXXXb (RQM set & DIO = write), if so, the byte can be sent
         let msr = FloppyPort::msr()?;
         if (msr >> 6) & 0b000000_11 == 0b10 {
             // Safety: The check above ensures that it's safe to send any byte
             // and the caller must ensure that sending the value is also safe
+            unsafe { ports::writeb(FloppyPort::Fifo.add_offset()?, byte) };
             motor::disable_motor();
-            return unsafe { Ok(ports::writeb(FloppyPort::Fifo.add_offset()?, byte)) };
+            return Ok(());
         }
     }
 
@@ -110,9 +111,9 @@ pub unsafe fn send_byte(byte: u8) -> Result<(), FloppyError> {
 #[inline(never)]
 pub unsafe fn read_byte() -> Result<u8, FloppyError> {
     let start_time = time::get_time();
-    motor::enable_motor()?;
-
     while start_time + TIMEOUT > time::get_time() {
+        motor::enable_motor()?;
+
         // Check if MSR = 11XXXXXXb (RQM set & DIO = read), if so, the byte can be read
         let msr = FloppyPort::msr()?;
         if (msr >> 6) & 0b000000_11 == 0b11 {
@@ -139,7 +140,7 @@ pub unsafe fn send_command(cmd: &FloppyCommand, params: &[u8]) -> Result<(), Sen
     'command: for _ in 0..RETRIES {
         // Safety: The caller must ensure that the command is safe to send
         if unsafe { send_byte(cmd).is_err() } {
-            dbg_info!("Sending command byte 0x{cmd:X} failed!");
+            dbg_info!("Sending floppy command byte 0x{cmd:X} failed!");
             result = Err(reinit(cmd, SendCommandError::BadCommand(cmd)));
             continue;
         }
@@ -148,7 +149,7 @@ pub unsafe fn send_command(cmd: &FloppyCommand, params: &[u8]) -> Result<(), Sen
         for (idx, param) in params.iter().enumerate() {
             // Safety: The caller must ensure that parameters are correct
             if unsafe { send_byte(*param).is_err() } {
-                dbg_info!("Sending param 0x{param:X} to command 0x{cmd:X} failed!");
+                dbg_info!("Sending floppy param 0x{param:X} to command 0x{cmd:X} failed!");
                 result = Err(reinit(cmd, SendCommandError::BadParameter { cmd, idx }));
                 continue 'command;
             }

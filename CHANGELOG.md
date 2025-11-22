@@ -1,5 +1,14 @@
 # Sunflower changelog
 
+## Development 08
+##### FloppyFS 22/11/25
+
+- Allowed the creation of inodes in the new `FloppyFS` filesystem
+- Created a (somewhat terrible) filesystem abstraction layer via the `fs` module 
+- Allowed writing to floppies
+- Fixed printing at the rightmost column of the vga buffer causing chars to be printed a row below
+- Fixed some rbod keyboard input checks
+
 ## Development 07
 ##### Floppies!! 11/10/25
 

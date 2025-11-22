@@ -12,6 +12,7 @@ use crate::{
 };
 use core::{
     fmt::Display,
+    hint,
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 use pc_keyboard::{
@@ -34,6 +35,9 @@ static KBD_RPTR: AtomicU8 = AtomicU8::new(0);
 
 /// Index into the last added scancode to the keyboard buffer.
 static KBD_WPTR: AtomicU8 = AtomicU8::new(0);
+
+/// The last value read from port 0x60.
+static PREV_RESPONSE: AtomicU8 = AtomicU8::new(0);
 
 /// Whether shift is being held or not. Used as pc-keyboard's shift check is dodgy.
 ///
@@ -127,14 +131,40 @@ impl Display for KbdInitError {
     }
 }
 
+/// Waits for either `y`, `n` or `enter` to be pressed.
+#[allow(unused)]
+pub fn wait_for_response(enter_eq_true: bool) -> bool {
+    /// The scancode for `y` in scancode set 2.
+    const Y_SCANCODE: u8 = 0x35;
+
+    /// The scancode for `n` in scancode set 2.
+    const N_SCANCODE: u8 = 0x31;
+
+    /// The scancode for `enter` in scancode set 2.
+    const ENTER_SCANCODE: u8 = 0x5A;
+
+    #[cfg(test)]
+    {
+        println!("Cannot ask for input in a test!");
+        crate::tests::exit_qemu(true)
+    }
+
+    loop {
+        hint::spin_loop(); // pause instruction
+        match PREV_RESPONSE.load(Ordering::Relaxed) {
+            Y_SCANCODE => return true,
+            N_SCANCODE => return false,
+            ENTER_SCANCODE => return enter_eq_true,
+            _ => (),
+        }
+    }
+}
+
 /// Adds the last response from the keyboard to the keyboard buffer.
 /// # Safety
 /// Reads from port 0x60 for it's response.
 #[unsafe(no_mangle)]
 unsafe fn kbd_handler() {
-    /// The last value read from port 0x60.
-    static PREV_RESPONSE: AtomicU8 = AtomicU8::new(0);
-
     if !startup::kbd_init() {
         return;
     }

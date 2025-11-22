@@ -99,6 +99,26 @@ pub fn kbd_poll_loop() -> ! {
     }
 }
 
+/// Waits for the user to type either `y` or `n`.
+///
+/// Loops forever if the keyboard failed to initialise.
+pub fn kbd_wait_for_response(prompt: &str, enter_eq_y: bool) -> bool {
+    if enter_eq_y {
+        print!("{prompt}? [Y/n] ");
+    } else {
+        print!("{prompt}? [y/N] ")
+    }
+
+    cursor::update_visual_pos();
+    let result = keyboard::wait_for_response(enter_eq_y);
+    if result {
+        println!("y");
+    } else {
+        println!("n")
+    }
+    result
+}
+
 /// Sets external interrupts.
 pub fn sti() {
     unsafe { asm!("sti") }

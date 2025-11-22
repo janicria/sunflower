@@ -279,7 +279,7 @@ extern "C" fn double_fault_handler() -> ! {
         "mov rdi, rsp",                // store stack frame in first arg
         "call print_df_info",          // print error info
         "mov rax, 0xDFDFDFDFDFDFDFDF", // pseudo error message which can be viewed in QEMU
-        "call hang",                   // no turning back now
+        "jmp hang",                    // no turning back now
     );
 }
 
@@ -292,7 +292,6 @@ extern "C" fn print_df_info(frame: IntStackFrame) {
     #[cfg(test)]
     {
         use core::any::type_name_of_val;
-
         println!("test {} - passed", type_name_of_val(&double_fault_handler));
         println!("\nIt looks like you didn't break anything!");
         exit_qemu(false);

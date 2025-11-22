@@ -8,7 +8,7 @@ It's versioning system is a little strange, with new releases following
 
 ## Features
 The latest version of Sunflower currently supports:
-- reading from floppy drives
+- reading from and writing to floppy drives
 - basic screen printing using VGA Text Mode,
 - a semi-basic PS/2 keyboard driver for drawing some of your cool ASCII art,
 - some beeps and boops using the PC Speaker,

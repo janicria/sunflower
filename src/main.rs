@@ -3,11 +3,18 @@
 #![test_runner(tests::run_tests)]
 #![reexport_test_harness_main = "tests"]
 #![forbid(static_mut_refs)] // clippy::undocumented_unsafe_blocks)]
-#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks)]
+#![feature(
+    abi_x86_interrupt,
+    sync_unsafe_cell,
+    yeet_expr,
+    custom_test_frameworks,
+    generic_const_exprs
+)]
 #![allow(
     clippy::unusual_byte_groupings,
     clippy::deref_addrof,
-    clippy::identity_op
+    clippy::identity_op,
+    incomplete_features
 )]
 
 /// Allows writing to the VGA text buffer
@@ -16,6 +23,9 @@ mod vga;
 
 /// Allows reading and writing to floppy disk drives.
 mod floppy;
+
+/// Allows interacting with files and directories.
+mod fs;
 
 /// Handles the InitLater and UnsafeFlag wrappers.
 mod wrappers;
@@ -70,15 +80,22 @@ pub unsafe extern "C" fn kmain() -> ! {
     startup::run("Checked CPUID", sysinfo::check_cpuid);
     startup::run("Finished RTC sync", time::wait_for_rtc_sync);
     startup::run("Initialised floppy drive", floppy::init);
+    startup::run("Mounted floppy drive", fs::init_floppyfs);
 
     #[cfg(test)]
     tests();
+
+    if cfg!(feature = "debug_info") {
+        let ptr = fs::alloc_inode(8, unsafe { core::mem::zeroed() }, 1).unwrap();
+        let mut buf = [0; 512];
+        let c = fs::read_inode(ptr, &mut buf).unwrap();
+        println!("read {c} from {ptr}\n{:?}", &buf[..80]);
+    }
 
     vga::draw_topbar("Sunflower");
     println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
     vga::cursor::update_visual_pos();
     speaker::play_chime();
-
     interrupts::kbd_poll_loop()
 }
 

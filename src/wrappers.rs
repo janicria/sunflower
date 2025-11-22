@@ -4,7 +4,7 @@ use core::{
     error::Error,
     fmt::{Debug, Display},
     marker::PhantomData,
-    mem::MaybeUninit,
+    mem::{self, MaybeUninit},
     ptr,
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
@@ -12,6 +12,7 @@ use core::{
 /// A wrapper type to construct uninitialised instances of `T`, which can be safely given an initialised value later.
 ///
 /// Designed to replace unnecessary `static mut`s.
+#[derive(Debug)]
 pub struct InitLater<T> {
     cell: SyncUnsafeCell<MaybeUninit<T>>,
     /// 0 - Uninit,
@@ -40,7 +41,7 @@ impl<T> InitLater<T> {
 
     /// Tries to initialise the value.
     /// Returns the loaded `val` for your convenience
-    pub fn init(&self, val: T) -> Result<&'static T, InitError<T>> {
+    pub fn init(&self, val: T) -> Result<&T, InitError<T>> {
         let state = self.state.load(Ordering::Relaxed);
         self.state.store(INITIALISING, Ordering::Relaxed);
 
@@ -51,7 +52,10 @@ impl<T> InitLater<T> {
                 self.state.store(INIT, Ordering::Relaxed);
                 Ok(val)
             }
-            state => Err(InitError::new(state)),
+            state => {
+                self.state.store(state, Ordering::Relaxed);
+                Err(InitError::new(state))
+            }
         }
     }
 
@@ -66,9 +70,9 @@ impl<T> InitLater<T> {
 }
 
 /// The error returned from various `InitLater` functions.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct InitError<T> {
-    state: u8,
+    pub state: u8,
     _marker: PhantomData<T>,
 }
 
@@ -101,9 +105,49 @@ impl<T> Display for InitError<T> {
     }
 }
 
+/// A mutually exclusive piece of data only accessible by applying a function on it.
+pub struct ExclusiveMap<T> {
+    cell: SyncUnsafeCell<T>,
+    access: AtomicBool,
+}
+
+impl<T> ExclusiveMap<T> {
+    /// Creates a new map using `val` as it's contained value.
+    pub const fn new(val: T) -> Self {
+        ExclusiveMap {
+            cell: SyncUnsafeCell::new(val),
+            access: AtomicBool::new(false),
+        }
+    }
+
+    /// Applies `f` to the contained value then returns what it returned.
+    ///
+    /// Fails and returns `None` if another instance of `map` is in progress.
+    pub fn map<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        if self
+            .access
+            // as far as I'm aware, the cmpxchg and cmpxchg weak intrinsics translate to the same set of instructions on x86
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            // Safety: The check above ensures that we have exclusive access to cell
+            let val = unsafe { &mut *self.cell.get() };
+            let ret = f(val);
+            self.access.store(false, Ordering::Relaxed);
+            Some(ret)
+        } else {
+            None
+        }
+    }
+}
+
 /// A wrapper type for to construct boolean flags which are `unsafe` write to, but safe to read from.
 ///
 /// Designed to replace `AtomicBool` statics can cause UB when written to incorrectly.
+#[derive(Debug)]
 pub struct UnsafeFlag {
     val: AtomicBool,
 }
@@ -190,6 +234,24 @@ impl<T> Display for TableDescriptor<T> {
     }
 }
 
+/// Enables converting `self` into an array of bytes.
+pub trait AsBytes {
+    /// Converts `self` into an array of bytes.
+    fn as_bytes(&self) -> [u8; size_of::<Self>()]
+    where
+        Self: Sized;
+}
+
+impl<T> AsBytes for T {
+    fn as_bytes(&self) -> [u8; size_of::<Self>()]
+    where
+        Self: Sized,
+    {
+        // Safety: A [u8; size_of::<Self>()] always has the same size as Self, as is always valid.
+        unsafe { mem::transmute_copy(self) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +271,14 @@ mod tests {
         assert!(init.read().is_err());
         let val = init.init(0x42).unwrap();
         assert_eq!(val, &0x42)
+    }
+
+    /// Tests that `ExclusiveMap` can be written to and read from correctly.
+    #[test_case]
+    fn exclusive_map_works() {
+        let exmap = ExclusiveMap::new(42);
+        exmap.map(|i| *i += 8).unwrap();
+        exmap.map(|i| assert_eq!(*i, 50)).unwrap();
+        exmap.map(|_| assert!(exmap.map(|_| {}).is_none())).unwrap()
     }
 }

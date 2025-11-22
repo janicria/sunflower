@@ -43,7 +43,7 @@ impl CursorPos {
         Self::clamp_row_col();
     }
 
-    /// Sets th column field in the static to `col`.
+    /// Sets the column field in the static to `col`.
     pub fn set_col(col: u8) {
         CURSOR.column.store(col, Ordering::Relaxed);
         Self::clamp_row_col();
