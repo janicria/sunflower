@@ -21,7 +21,7 @@ The latest version of Sunflower currently supports:
 Sunflower requires [`Rust`](https://www.rust-lang.org/tools/install) to be installed before building, and once you've installed it you can just run:
 ```
 git clone https://github.com/janicria/sunflower.git
-cd sunflower
+cd sunflower/kernel
 cargo install bootimage@0.10.3
 cargo b
 ```

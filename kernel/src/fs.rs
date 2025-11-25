@@ -7,7 +7,6 @@
 use bitflags::bitflags;
 use core::{fmt::Display, mem};
 pub use floppyfs::{alloc_inode, init_floppyfs, read_inode};
-
 /// A floppy disk connected filesystem.
 mod floppyfs;
 

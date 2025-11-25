@@ -2,8 +2,8 @@ use super::{
     cursor::{self, CursorPos},
     print::VGAChar,
 };
-use crate::wrappers::UnsafeFlag;
 use core::ptr;
+use libutil::UnsafeFlag;
 
 /// The width of the VGA text buf, in chars.
 pub const BUFFER_WIDTH: u8 = 80;

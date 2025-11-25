@@ -1,9 +1,9 @@
 use crate::{
     interrupts,
     startup::{self, GDT_INIT},
-    wrappers::{InitError, InitLater, LoadRegisterError, TableDescriptor},
 };
 use core::{arch::asm, mem};
+use libutil::{InitError, InitLater, LoadRegisterError, TableDescriptor};
 
 /// The number of entries the GDT contains.
 static GDT_ENTRIES: usize = 5;
@@ -271,9 +271,9 @@ mod tests {
         assert_eq!(ptr, segment_ptr)
     }
 
-    /// Tests that IST 1 points to the emergency stack.
+    /// Tests that IST 1 points to the emergency stack used.
     #[test_case]
-    fn ist_one_points_to_stack() {
+    fn ist_one_points_to_df_stack() {
         let tss = TSS.read().unwrap();
         let stack_end_addr = &raw const STACK as u64 + STACK_SIZE;
         let ist1 = tss.ist[0];

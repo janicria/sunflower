@@ -2,13 +2,14 @@ use super::{
     IRQ_START, Idt, IntStackFrame,
     rbod::{self, ErrCodeHandler, ErrorCode, RbodErrInfo},
 };
-use crate::{gdt, vga::buffers, wrappers::TableDescriptor};
+use crate::{gdt, vga::buffers};
 #[cfg(test)]
 use crate::{interrupts::IDT, tests::exit_qemu};
 use core::{
     arch::{asm, naked_asm},
     sync::atomic::Ordering,
 };
+use libutil::TableDescriptor;
 
 type Handler = u64;
 

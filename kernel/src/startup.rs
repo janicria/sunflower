@@ -1,5 +1,5 @@
-use crate::wrappers::UnsafeFlag;
 use core::fmt::Display;
+use libutil::UnsafeFlag;
 
 // Whether or not the GDT has been initialised yet
 /// # Flag

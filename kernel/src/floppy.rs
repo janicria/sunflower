@@ -1,10 +1,8 @@
-use crate::{
-    ports, startup, time,
-    wrappers::{InitError, InitLater, UnsafeFlag},
-};
+use crate::{ports, startup, time};
 use core::fmt::Display;
 use disk::DiskError;
 use fifo::{FifoError, FloppyCommand, SendCommandError, SenseIntState, SenseInterruptError};
+use libutil::{InitError, InitLater, UnsafeFlag};
 use thiserror::Error;
 
 /// Handles data transfers to and from the floppy's disk.

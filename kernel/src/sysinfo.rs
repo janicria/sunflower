@@ -4,18 +4,18 @@ use crate::{
     interrupts::{self, Idt},
     startup,
     time::{self, Time},
-    wrappers::{InitError, TableDescriptor},
 };
 use core::{arch::asm, fmt::Display};
+use libutil::{InitError, TableDescriptor};
 
 /// The current version of the sunflower kernel.
-static VERSION_LONG: &str = "SFK-00-Development-08";
+static VERSION_LONG: &str = "SFK-00-Development-09";
 
 /// A shortened version of the kernel's version.
-static VERSION_SHORT: &str = "SFK-Dev-08";
+static VERSION_SHORT: &str = "SFK-Dev-09";
 
 /// Message updated each patch.
-static PATCH_QUOTE: &str = "floppyfs   ";
+static PATCH_QUOTE: &str = "seeder prep";
 
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]

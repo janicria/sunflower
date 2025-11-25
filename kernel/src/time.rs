@@ -3,7 +3,6 @@ use crate::{
     ports::{self, Port},
     startup,
     vga::print::Corner,
-    wrappers::{InitError, InitLater},
 };
 use core::{
     arch::{asm, naked_asm},
@@ -12,6 +11,7 @@ use core::{
     hint, ptr,
     sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
 };
+use libutil::{InitError, InitLater};
 
 /// The base frequency of the PIT.
 pub static PIT_BASE_FREQ: u64 = 1193180;

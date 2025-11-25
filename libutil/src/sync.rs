@@ -4,8 +4,7 @@ use core::{
     error::Error,
     fmt::{Debug, Display},
     marker::PhantomData,
-    mem::{self, MaybeUninit},
-    ptr,
+    mem::MaybeUninit,
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
@@ -173,91 +172,12 @@ impl UnsafeFlag {
     }
 }
 
-/// A wrapper type for easily checking if your register (`T`) loaded correctly.
-pub enum LoadRegisterError<T> {
-    Load(InitError<T>),
-    Store(&'static str),
-    Other(&'static str),
-}
-
-impl<T> From<InitError<T>> for LoadRegisterError<T> {
-    fn from(err: InitError<T>) -> Self {
-        LoadRegisterError::Load(err)
-    }
-}
-
-impl<T> Display for LoadRegisterError<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            LoadRegisterError::Load(e) => write!(f, "Failed load, {e}"),
-            LoadRegisterError::Store(t) => write!(f, "Stored {t} doesn't match loaded {t}"),
-            LoadRegisterError::Other(s) => write!(f, "{s}"),
-        }
-    }
-}
-
-// A wrapper type for easily creating descriptors for your descriptor tables.
-#[repr(C, packed)]
-pub struct TableDescriptor<T> {
-    size: u16,
-    offset: *const T,
-}
-
-impl<T> TableDescriptor<T> {
-    /// Creates a new descriptor pointing to `table`.
-    pub fn new(table: &'static T) -> Self {
-        TableDescriptor {
-            size: (size_of::<T>() - 1) as u16,
-            offset: table,
-        }
-    }
-
-    /// Returns an invalid descriptor.
-    pub fn invalid() -> Self {
-        TableDescriptor {
-            size: 0,
-            offset: ptr::null(),
-        }
-    }
-}
-
-impl<T> PartialEq for TableDescriptor<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.size == other.size && self.offset as u64 == other.offset as u64
-    }
-}
-
-impl<T> Display for TableDescriptor<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let size = self.size;
-        write!(f, "size = {size} & offset = 0x{:x}", self.offset as u64)
-    }
-}
-
-/// Enables converting `self` into an array of bytes.
-pub trait AsBytes {
-    /// Converts `self` into an array of bytes.
-    fn as_bytes(&self) -> [u8; size_of::<Self>()]
-    where
-        Self: Sized;
-}
-
-impl<T> AsBytes for T {
-    fn as_bytes(&self) -> [u8; size_of::<Self>()]
-    where
-        Self: Sized,
-    {
-        // Safety: A [u8; size_of::<Self>()] always has the same size as Self, as is always valid.
-        unsafe { mem::transmute_copy(self) }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Tests that `InitLater` can only be initialised once.
-    #[test_case]
+    #[test]
     fn initlater_inits_once() {
         let init = InitLater::uninit();
         assert!(init.init(0x42).is_ok());
@@ -265,7 +185,7 @@ mod tests {
     }
 
     /// Tests that `InitLater` can't be read from before it's initialised.
-    #[test_case]
+    #[test]
     fn initlater_cant_read_before_init() {
         let init = InitLater::uninit();
         assert!(init.read().is_err());
@@ -274,8 +194,8 @@ mod tests {
     }
 
     /// Tests that `ExclusiveMap` can be written to and read from correctly.
-    #[test_case]
-    fn exclusive_map_works() {
+    #[test]
+    fn exmap_works() {
         let exmap = ExclusiveMap::new(42);
         exmap.map(|i| *i += 8).unwrap();
         exmap.map(|i| assert_eq!(*i, 50)).unwrap();

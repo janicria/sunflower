@@ -3,32 +3,21 @@
 #![test_runner(tests::run_tests)]
 #![reexport_test_harness_main = "tests"]
 #![forbid(static_mut_refs)] // clippy::undocumented_unsafe_blocks)]
-#![feature(
-    abi_x86_interrupt,
-    sync_unsafe_cell,
-    yeet_expr,
-    custom_test_frameworks,
-    generic_const_exprs
-)]
+#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks)]
 #![allow(
     clippy::unusual_byte_groupings,
     clippy::deref_addrof,
-    clippy::identity_op,
-    incomplete_features
+    clippy::identity_op
 )]
 
 /// Allows writing to the VGA text buffer
 #[macro_use]
 mod vga;
 
-/// Allows reading and writing to floppy disk drives.
 mod floppy;
 
 /// Allows interacting with files and directories.
 mod fs;
-
-/// Handles the InitLater and UnsafeFlag wrappers.
-mod wrappers;
 
 /// Handles loading a new TSS & GDT.
 mod gdt;
@@ -89,7 +78,7 @@ pub unsafe extern "C" fn kmain() -> ! {
         let ptr = fs::alloc_inode(8, unsafe { core::mem::zeroed() }, 1).unwrap();
         let mut buf = [0; 512];
         let c = fs::read_inode(ptr, &mut buf).unwrap();
-        println!("read {c} from {ptr}\n{:?}", &buf[..80]);
+        println!("read {c} from {ptr}");
     }
 
     vga::draw_topbar("Sunflower");

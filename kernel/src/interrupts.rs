@@ -1,11 +1,8 @@
-use crate::{
-    time,
-    vga::cursor,
-    wrappers::{InitLater, LoadRegisterError, TableDescriptor},
-};
+use crate::{time, vga::cursor};
 use core::{arch::asm, convert::Infallible, fmt::Display, hint};
 use idt::InterruptDescriptor;
 use keyboard::KbdInitError;
+use libutil::{InitLater, LoadRegisterError, TableDescriptor};
 
 /// IDT and exception handlers.
 mod idt;

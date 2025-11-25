@@ -1,5 +1,12 @@
 # Sunflower changelog
 
+## Development 09
+##### libutil 25/11/25
+
+- Moved `src/wrappers.rs` into it's own `libutil` library
+- Moved the main sunflower kernel code into the `kernel` directory
+- Both these changes were in prep for the sunflower build tool I'm working, called `seeder`
+
 ## Development 08
 ##### FloppyFS 22/11/25
 

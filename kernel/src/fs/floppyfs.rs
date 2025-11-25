@@ -9,9 +9,9 @@ use crate::{
     },
     fs::INODES_PER_BLOCK,
     interrupts, startup, time,
-    wrappers::{AsBytes, ExclusiveMap},
 };
 use core::mem;
+use libutil::{AsBytes, ExclusiveMap};
 use thiserror::Error;
 
 /// The last sector in the floppy drive
@@ -272,7 +272,6 @@ pub fn read_inode(ptr: u64, buf: &mut [u8]) -> Result<u16, InodeIOError> {
         let mut read = 0;
         let mut tmp_buf = [0; SECTOR_SIZE];
         for ptrs in ptrs.iter().map(|p| p.decode()) {
-            print!("| ptrs: {:?}", &ptrs);
             for ptr in ptrs.into_iter().filter(|ptr| *ptr != 0) {
                 if buf.len() < (read + 1) * SECTOR_SIZE {
                     // we've hit the end of the buffer

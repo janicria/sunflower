@@ -1,6 +1,7 @@
 use super::{DRIVE_ONE, FloppyPort};
-use crate::{ports, time, wrappers::InitError};
+use crate::{ports, time};
 use core::sync::atomic::{AtomicU8, AtomicU16, Ordering};
+use libutil::InitError;
 
 /// The current state of the floppy's motor.
 static MOTOR_STATE: AtomicU8 = AtomicU8::new(MOTOR_OFF);

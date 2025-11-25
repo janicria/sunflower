@@ -13,6 +13,7 @@ pc-keyboard = "0.8.0"
 ps2 = "0.2.0"
 thiserror = { version = "2.0.17", default-features = false }
 uart_16550 = "0.4.0"
+libutil ={ path = "../libutil"}
 
 [features]
 disable_enter = [] # Disables the enter key from being pressed
