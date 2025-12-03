@@ -9,13 +9,13 @@ use core::{arch::asm, fmt::Display};
 use libutil::{InitError, TableDescriptor};
 
 /// The current version of the sunflower kernel.
-static VERSION_LONG: &str = "SFK-00-Development-09";
+static VERSION_LONG: &str = "SFK-00-Development-10";
 
 /// A shortened version of the kernel's version.
-static VERSION_SHORT: &str = "SFK-Dev-09";
+static VERSION_SHORT: &str = "SFK-Dev-10";
 
 /// Message updated each patch.
-static PATCH_QUOTE: &str = "seeder prep";
+static PATCH_QUOTE: &str = "wow! seeder";
 
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]

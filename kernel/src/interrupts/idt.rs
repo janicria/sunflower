@@ -53,19 +53,19 @@ macro_rules! cont_wrapper {
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
             naked_asm!(
-                pushregs!(),                            // need to push before calling cont
+                pushregs!(),                            // save state before calling cont
                 concat!("mov rdi, ", stringify!($err)), // err code
                 "mov ERR_CODE, rdi",                    // store err code in static
                 "mov rdi, rsp",                         // store stack frame in first arg
                 "add rdi, 9*8",                         // offset the 9 registers just got pushed
                 "call cont",
-                popregs!(),
+                popregs!(),                             // restore state now that cont has finished
                 concat!("add qword ptr [rsp], ", $inc), // increase return address to not get in an infinite cycle
                 "iretq"
             )
         }
 
-        wrapper as Handler
+        wrapper as *const () as Handler
     }};
 }
 
@@ -91,7 +91,7 @@ macro_rules! rbod_wrapper {
             )
         }
 
-        wrapper as Handler
+        wrapper as *const () as Handler
     }};
 }
 
@@ -110,15 +110,15 @@ impl Idt {
         idt.set_handler(5, None, rbod_wrapper!(5));
         idt.set_handler(6, None, cont_wrapper!(6, 2));
         idt.set_handler(7, None, rbod_wrapper!(7));
-        idt.set_handler(8, Some(1), double_fault_handler as Handler);
-        idt.set_handler(13, None, gpf_handler as Handler);
-        idt.set_handler(14, None, page_fault_handler as Handler);
-        idt.set_handler(IRQ_START + 0, None, timer_handler as Handler);
-        idt.set_handler(IRQ_START + 1, None, key_pressed_wrapper as Handler);
-        idt.set_handler(IRQ_START + 6, None, floppy_handler as Handler);
-        idt.set_handler(IRQ_START + 7, None, dummy_handler as Handler);
-        idt.set_handler(IRQ_START + 8, None, rtc_handler as Handler);
-        idt.set_handler(IRQ_START + 15, None, dummy_handler as Handler);
+        idt.set_handler(8, Some(1), double_fault_handler as *const () as Handler);
+        idt.set_handler(13, None, gpf_handler as *const () as Handler);
+        idt.set_handler(14, None, page_fault_handler as *const () as Handler);
+        idt.set_handler(IRQ_START + 0, None, timer_handler as *const () as Handler);
+        idt.set_handler(IRQ_START + 1, None, kbd_wrapper as *const () as Handler);
+        idt.set_handler(IRQ_START + 6, None, floppy_handler as *const () as Handler);
+        idt.set_handler(IRQ_START + 7, None, dummy_handler as *const () as Handler);
+        idt.set_handler(IRQ_START + 8, None, rtc_handler as *const () as Handler);
+        idt.set_handler(IRQ_START + 15, None, dummy_handler as *const () as Handler);
 
         idt
     }
@@ -324,7 +324,7 @@ extern "C" fn timer_handler() -> ! {
 
 /// Ran when the PS/2 keyboard generates an interrupt.
 #[unsafe(naked)]
-extern "C" fn key_pressed_wrapper() -> ! {
+extern "C" fn kbd_wrapper() -> ! {
     naked_asm!(
         pushregs!(),
         "call kbd_handler", // Safety: it's safe to read from port 0x60 in the key pressed interrupt
@@ -404,15 +404,17 @@ mod tests {
 
     /// Tests that various interrupt descriptors point to their respective handlers.
     #[test_case]
+    #[rustfmt::skip]
     fn descriptors_point_to_handlers() {
         let idt = IDT.read().unwrap().0;
-        assert_eq!(idt[8].ptr(), double_fault_handler as Handler);
-        assert_eq!(idt[13].ptr(), gpf_handler as Handler);
-        assert_eq!(idt[14].ptr(), page_fault_handler as Handler);
-        assert_eq!(idt[IRQ_START + 0].ptr(), timer_handler as Handler);
-        assert_eq!(idt[IRQ_START + 1].ptr(), key_pressed_wrapper as Handler);
-        assert_eq!(idt[IRQ_START + 7].ptr(), dummy_handler as Handler);
-        assert_eq!(idt[IRQ_START + 8].ptr(), rtc_handler as Handler);
-        assert_eq!(idt[IRQ_START + 15].ptr(), dummy_handler as Handler);
+        assert_eq!(idt[8].ptr(),              double_fault_handler as *const () as Handler);
+        assert_eq!(idt[13].ptr(),             gpf_handler          as *const () as Handler);
+        assert_eq!(idt[14].ptr(),             page_fault_handler   as *const () as Handler);
+        assert_eq!(idt[IRQ_START + 0].ptr(),  timer_handler   as *const () as Handler);
+        assert_eq!(idt[IRQ_START + 1].ptr(),  kbd_wrapper     as *const () as Handler);
+        assert_eq!(idt[IRQ_START + 6].ptr(),  floppy_handler  as *const () as Handler);
+        assert_eq!(idt[IRQ_START + 7].ptr(),  dummy_handler   as *const () as Handler);
+        assert_eq!(idt[IRQ_START + 8].ptr(),  rtc_handler     as *const () as Handler);
+        assert_eq!(idt[IRQ_START + 15].ptr(), dummy_handler   as *const () as Handler);
     }
 }

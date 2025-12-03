@@ -1,5 +1,5 @@
 use crate::InitError;
-use core::{fmt::Display, mem, ptr};
+use core::{fmt::Display, ptr, slice};
 
 /// A wrapper type for easily creating descriptors for your descriptor tables.
 #[repr(C, packed)]
@@ -63,26 +63,24 @@ impl<T> Display for LoadRegisterError<T> {
 }
 
 /// Enables converting `self` into an array of bytes.
-pub trait AsBytes {
+/// # Safety
+/// All possible values of the given type must never contain any uninitialised bytes,
+/// such as padding bytes and must not have any interior mutability.
+pub unsafe trait AsBytes {
     /// Converts `self` into an array of bytes.
-    fn as_bytes(&self) -> [u8; size_of::<Self>()]
-    where
-        Self: Sized;
-}
-
-impl<T> AsBytes for T {
-    fn as_bytes(&self) -> [u8; size_of::<Self>()]
-    where
-        Self: Sized,
-    {
-        // Safety: A [u8; size_of::<Self>()] always has the same size as Self, and is always valid.
-        unsafe { mem::transmute_copy(self) }
+    fn as_bytes(&self) -> &[u8] {
+        let ptr = self as *const _ as *const u8;
+        // Safety: The data coming from self is non-null, aligned as well as forever valid due to the requirement of implementing AsBytes
+        unsafe { slice::from_raw_parts(ptr, size_of_val(self)) }
     }
 }
 
+// Safety: If a value has no uninit bytes, then an array of it will also not have any.
+unsafe impl<T> AsBytes for [T] where T: AsBytes {}
+
 #[cfg(test)]
 mod tests {
-    use crate::AsBytes;
+    use super::*;
 
     /// Tests that the `AsBytes` trait functions correctly.
     #[test]
@@ -90,6 +88,8 @@ mod tests {
     fn as_bytes_works() {
         #[repr(C, packed)] 
         struct MyStruct { x: u16, y: u8 }
+        unsafe impl AsBytes for MyStruct {}
+        
         let bytes = MyStruct { x: 257, y: 18 }.as_bytes();
         assert_eq!(bytes[0], 1);
         assert_eq!(bytes[1], 1);

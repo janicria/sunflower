@@ -281,7 +281,10 @@ pub fn read(ptr: u16, buf: &mut [u8]) -> Result<(), FloppyError> {
     let sects = buf.len() / SECTOR_SIZE;
     let mut err = DiskError::IoTimeout.into();
     'read: for _ in 0..DISK_RETRIES {
-        dbg_info!("reading {sects} sectors ({}b) at sect {ptr} from floppy", buf.len());
+        dbg_info!(
+            "reading {sects} sectors ({}b) at sect {ptr} from floppy",
+            buf.len()
+        );
 
         // Safety: The read and write commands are never ran at the same time
         if let Err(e) = unsafe { send_read_write(true, ptr, sects as u16) } {
@@ -341,7 +344,10 @@ pub fn write(ptr: u16, buf: &[u8]) -> Result<(), FloppyError> {
     let sects = buf.len() / SECTOR_SIZE;
     let mut err = DiskError::IoTimeout.into();
     'write: for _ in 0..DISK_RETRIES {
-        dbg_info!("writing {sects} sectors ({}b) at sect {ptr} to floppy", buf.len());
+        dbg_info!(
+            "writing {sects} sectors ({}b) at sect {ptr} to floppy",
+            buf.len()
+        );
 
         // Safety: The read and write commands are never ran at the same time
         if let Err(e) = unsafe { send_read_write(false, ptr, sects as u16) } {

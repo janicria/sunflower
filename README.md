@@ -9,6 +9,7 @@ It's versioning system is a little strange, with new releases following
 ## Features
 The latest version of Sunflower currently supports:
 - reading from and writing to floppy drives
+- it's very own build tool, `seeder!`
 - basic screen printing using VGA Text Mode,
 - a semi-basic PS/2 keyboard driver for drawing some of your cool ASCII art,
 - some beeps and boops using the PC Speaker,
@@ -18,29 +19,55 @@ The latest version of Sunflower currently supports:
 - and the coolest crash screen ever (it's even rainbow)
 
 ## Building
-Sunflower requires [`Rust`](https://www.rust-lang.org/tools/install) to be installed before building, and once you've installed it you can just run:
+Sunflower uses it's very own build tool, `seeder`, which requires [`Rust`](https://www.rust-lang.org/tools/install) to be installed, and can be run via `cargo sdr`. 
+
+Once you've installed rust you can just run the following commands to build a bootimage image of sunflower which should appear at `sunflower.bin` 
 ```
 git clone https://github.com/janicria/sunflower.git
-cd sunflower/kernel
-cargo install bootimage@0.10.3
-cargo b
+cd sunflower
+cargo sdr build
 ```
-to build sunflower. The resulting disk image should appear at 
-`target/x86_64-sunflower/release/bootimage-sunflower.bin`
+
+For more commands and options for `seeder`, you can just run `cargo sdr help`
+
+```
+Sunflower's build tool, seeder
+
+Usage: cargo sdr COMMAND [OPTIONS]
+
+Commands:
+  build, b                    Builds the kernel
+  run, r                      Builds then runs the kernel in QEMU, requires passing in an audio flag
+  did-i-break-anything, diba  Runs tests on the kernel in QEMU
+  clippy, c                   Checks sunflower using clippy
+  dbg, d                      alias: run -dn
+  help                        Print this message or the help of the given subcommand(s)
+
+Options:
+  -d, --debug        Enables runtime debug tools and information
+  -e, --noenter      Prevents sunflower from detecting if the enter key is pressed
+  -p, --path <FILE>  The file to write the built bootable disk image to
+  -w, --pipewire     Run with pipewire audio support
+  -a, --pulseaudio   Run with pulseaudio audio support
+  -n, --nosound      Run without audio
+  -h, --help         Print help
+  -V, --version      Print version
+```
 
 ## Running
 ### QEMU
-Sunflower supports [`QEMU`](https://www.qemu.org/download/) for running it in a VM. After installing it you can just run either:
+Sunflower supports [`QEMU`](https://www.qemu.org/download/) for running the kernel in a VM. After installing it, you can just just `cargo sdr run`
 ```
-cargo run-nosound     # Run without audio 
-cargo run-debug       # Run in debug mode without audio
-cargo run-pipewire    # Run with pipewire audio support
-cargo run-pulseaudio  # Run with pulseaudio audio support
+cargo sdr run --nosound     # Run without audio 
+cargo sdr run --pipewire    # Run with pipewire audio support
+cargo sdr run --pulseaudio  # Run with pulseaudio audio support
 
 ```
-to run sunflower with either no audio, pipewire support or  pulseaudio support respectively. With QEMU installed, you can also test sunflower by running: 
+If sunflower is ran in QEMU for the first time you may be promoted to format a floppy drive, this is just some file on your computer (`floppy.img`) and formatting it won't affect any physical floppy drives connected to your device.
+
+With QEMU installed and the floppy drive formatted, you can also test sunflower by running: 
 ```
-cargo did-i-break-anything
+cargo sdr did-i-break-anything
 ````
 
 ### Real hardware
@@ -48,11 +75,12 @@ WARNING: Sunflower is not fully tested and may cause **damages** or **permanent 
 
 However, if you'd like to run sunflower anyway on an x86 compatible computer you can run:
 ```
-sudo dd if=target/x86_64-sunflower/release/bootimage-sunflower.bin of=/dev/DEVICE && sync
+cargo sdr build
+sudo dd if=sunflower.bin of=/dev/DEVICE && sync
 ```
 replacing `DEVICE` with the USB you want to write sunflower to (usually `sda` or `sdb`). This will **WIPE EVERYTHING** on that drive, so think before running the command and double check you put in the **right device name**.
 
-You'll also need to enable the Legacy BIOS Boot option in your device's BIOS, as well as maybe having to disable Secure Boot and changing your boot order.
+You'll also need to enable the Legacy BIOS Boot option in your device's BIOS, as well as changing your boot order to boot into sunflower.
 
 ## System Commands
 

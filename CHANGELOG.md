@@ -1,5 +1,15 @@
 # Sunflower changelog
 
+## Development 10
+##### Seeder 2/12/25
+
+- Added sunflower's very own build tool `seeder`, with it's own directory
+- Prevented formatting the floppy drive from permanently locking up the floppy driver (whoops!)
+- Fixed `libutil::AsBytes` from being very very unsafe to normal levels of unsafe
+- Updated the nightly channel to `2025-11-22`
+- Cleaned up some IDT handler code
+- Fixed a typo in SysCmd 7
+
 ## Development 09
 ##### libutil 25/11/25
 

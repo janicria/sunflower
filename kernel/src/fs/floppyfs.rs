@@ -17,6 +17,9 @@ use thiserror::Error;
 /// The last sector in the floppy drive
 const END_SECTOR: u16 = CYLINDERS * HEADS * SECTORS;
 
+/// The linear block address of the last sector in the first cylinder.
+const CYL_1_END: usize = 17;
+
 /// Memory cached inode table, should be written to disk on write.
 static INODE_TABLE: [ExclusiveMap<INode>; INODES] =
     [const { ExclusiveMap::new(INode::zeroed()) }; INODES];
@@ -27,8 +30,8 @@ static FREE_BLOCKS: [ExclusiveMap<u8>; INODES * 8] = [const { ExclusiveMap::new(
 /// A good default filesystem header.
 const GOOD_FS_HEADER: FilesystemHeader = FilesystemHeader {
     magic: MAGIC,
-    // 22nd November 2025 UTC
-    release: 0 << 10 | 326,
+    // 2nd December 2025 UTC
+    release: 0 << 10 | 336,
     features: FilesystemFeatures::FLOPPY,
     name: [
         // "floppy drive"
@@ -48,17 +51,18 @@ fn reformat_drive() -> Result<(), InitError> {
 
     // Write a new fs header
     let fsheader = GOOD_FS_HEADER.as_bytes();
-    disk::write(0, &fsheader)?;
+    disk::write(0, fsheader)?;
 
     // Zero out the inode table
-    let inodes = [const { INode::zeroed() }; INODES].as_bytes();
-    disk::write(INODE_START, &inodes)?;
+    static BUF: [u8; INODES * size_of::<INode>()] = [0; INODES * size_of::<INode>()];
+    disk::write(INODE_START, &BUF[..CYL_1_END * SECTOR_SIZE])?; // write first cyl
+    disk::write(CYL_1_END as u16 + 1, &BUF[CYL_1_END * SECTOR_SIZE..])?; // write second cyl
 
     Ok(())
 }
 
 /// Initialises and mounts the floppy filesystem.
-#[allow(unused_variables)]
+#[allow(unused)]
 pub fn init_floppyfs() -> Result<(), InitError> {
     if !startup::FLOPPY_INIT.load() {
         return Err(InitError::NoFloppyDriver);
@@ -247,7 +251,8 @@ fn write_inode(ptr: u64) -> Result<(), InodeIOError> {
             }
         }
 
-        return disk::write(INODE_START + lba as u16, &buf.as_bytes()).map_err(Into::into);
+        let buf: [u8; size_of::<INode>() * 4] = unsafe { core::mem::transmute(buf) };
+        return disk::write(INODE_START + lba as u16, &buf).map_err(Into::into);
     }
 
     Err(InodeIOError::TableBusy)

@@ -1,0 +1,11 @@
+[package]
+name = "seeder"
+description = "Sunflower's very own build tool!"
+version = "0.1.1"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/janicria/sunflower"
+
+[dependencies]
+clap = { version = "4.5.53", features = ["cargo"] }
+thiserror = "2.0.17"

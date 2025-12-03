@@ -222,7 +222,7 @@ fn check_keyboard() {
         return; // return if a key is still being held
     }
     KEY_HELD_TIMER.store(0, Ordering::Relaxed);
-    
+
     // Run corresponding action
     if scancode == ONE || scancode == ONE_KEYPAD {
         super::triple_fault();

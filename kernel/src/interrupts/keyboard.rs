@@ -327,7 +327,7 @@ You can write or draw whatever you want, by typing characters on your keyboard."
     println!(fg = LightBlue, "\nRBOD - Rainbow Box Of Death");
     print!(
         "Sunflower's crash handler is called rbod (original name I know).
-It looks really cool and I recommend running SysCmds 4 just to see it.
+It looks really cool and I recommend running SysCmd 4 just to see it.
 When in rbod you're locked to the three key options, and can't do anything else."
     )
 }

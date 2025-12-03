@@ -271,7 +271,7 @@ mod tests {
         assert_eq!(ptr, segment_ptr)
     }
 
-    /// Tests that IST 1 points to the emergency stack used.
+    /// Tests that IST 1 points to the emergency stack.
     #[test_case]
     fn ist_one_points_to_df_stack() {
         let tss = TSS.read().unwrap();

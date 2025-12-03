@@ -7,6 +7,7 @@
 use bitflags::bitflags;
 use core::{fmt::Display, mem};
 pub use floppyfs::{alloc_inode, init_floppyfs, read_inode};
+use libutil::AsBytes;
 /// A floppy disk connected filesystem.
 mod floppyfs;
 
@@ -14,7 +15,7 @@ mod floppyfs;
 pub static MAGIC: [u8; 6] = [0xFD, b'S', b'F', b'K', 0x86, 0x64];
 
 /// The number of USABLE inodes in the inode table.
-const INODES: usize = 140; // header + inodes fit exactly one two cylinders on the floppy
+const INODES: usize = 140; // header + inodes fit exactly in two cylinders of the floppy
 
 /// The linear block address of the start of the inode table.
 const INODE_START: u16 = 1;
@@ -182,6 +183,10 @@ impl FilesystemHeader {
         unsafe { mem::transmute::<[u8; size_of::<FilesystemHeader>()], FilesystemHeader>(bytes) }
     }
 }
+
+// Safety: Both types are packed never containing any uninit bytes or interior mutability.
+unsafe impl AsBytes for INode {}
+unsafe impl AsBytes for FilesystemHeader {}
 
 #[cfg(test)]
 mod tests {

@@ -14,6 +14,7 @@
 #[macro_use]
 mod vga;
 
+/// Allows reading and writing to floppy disk drives.
 mod floppy;
 
 /// Allows interacting with files and directories.
@@ -44,12 +45,10 @@ mod tests;
 /// Handles the PIT.
 mod time;
 
-// Warn anyone just running `cargo build` to use the bootimage tool
+// Warn anyone just running `cargo build` to use seeder tool
 #[cfg(any(debug_assertions, not(feature = "bootimage")))]
 compile_error!(
-    "Please build sunflower using `cargo b` or `cargo bootimage` 
-run it using `cargo run-nosound` `cargo run-pipewire` or `cargo run-pulseaudio` 
-use clippy via `cargo paperclip` and test using `cargo did-i-break-anything`"
+    "Please build sunflower using seeder, run `cargo sdr help` in the main sunflower directory for help"
 );
 
 /// The kernel entry point.

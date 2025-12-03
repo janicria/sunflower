@@ -1,4 +1,4 @@
 [alias]
 sdr = "run --manifest-path seeder/Cargo.toml"
-
-
+paperclip = "clippy"
+did-i-break-anything = "test"
