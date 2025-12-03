@@ -27,11 +27,16 @@ static INODE_TABLE: [ExclusiveMap<INode>; INODES] =
 /// Bitmap of freely available blocks, a zero indicates that a block is available.
 static FREE_BLOCKS: [ExclusiveMap<u8>; INODES * 8] = [const { ExclusiveMap::new(0) }; INODES * 8];
 
+/// The year value in the floppy fsheader.
+const YEAR: u16 = crate::env_as_int!("SFK_FLOPPYFS_YEAR", u16);
+
+/// The day value in the floppy fsheader.
+const DAY: u16 = crate::env_as_int!("SFK_FLOPPYFS_YEAR", u16);
+
 /// A good default filesystem header.
 const GOOD_FS_HEADER: FilesystemHeader = FilesystemHeader {
     magic: MAGIC,
-    // 2nd December 2025 UTC
-    release: 0 << 10 | 336,
+    release: YEAR << 10 | DAY,
     features: FilesystemFeatures::FLOPPY,
     name: [
         // "floppy drive"

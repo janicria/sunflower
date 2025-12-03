@@ -1,0 +1,20 @@
+# This file is used by sunflower's build script to determine the kernel & floppyfs version
+
+[kernel]
+# The current version of the sunflower kernel.
+version_long = "SFK-00-Development-11"
+
+# A shortened version of the kernel's version.
+version_short = "SFK-Dev-11"
+
+# Message updated each patch & displayed on the topbar.
+# Must be exactly 11 characters.
+patch_quote = "version!! ."
+
+#  When the filesystem driver was last updated in UTC
+[floppyfs]
+# The day of the year (Jan 1st = 1)
+day = 337
+
+# The number of years since 2025
+year = 0

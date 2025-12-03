@@ -15,7 +15,7 @@ The latest version of Sunflower currently supports:
 - some beeps and boops using the PC Speaker,
 - a rudimentary 100 Hz timer and hardware clock reader,
 - some [system commands](https://github.com/janicria/sunflower?tab=readme-ov-file#system-commands),
-- a really cool test framework via `cargo did-i-break-anything`,
+- a really cool test framework,
 - and the coolest crash screen ever (it's even rainbow)
 
 ## Building
@@ -56,7 +56,7 @@ Options:
 
 ## Running
 ### QEMU
-Sunflower supports [`QEMU`](https://www.qemu.org/download/) for running the kernel in a VM. After installing it, you can just just `cargo sdr run`
+Sunflower supports [`QEMU`](https://www.qemu.org/download/) for running the kernel in an emulator. After installing it, you can just just `cargo sdr run`
 ```
 cargo sdr run --nosound     # Run without audio 
 cargo sdr run --pipewire    # Run with pipewire audio support

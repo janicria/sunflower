@@ -5,7 +5,7 @@ This directory contains the actual kernel binary used by sunflower and loaded by
 ```
 sunflower/kernel/ 
    src/                    # Where the actual code goes 
-   floppy.img              # Floppy drive sunflower uses when in QEMU
+   build.rs                # Parses the VERSION file then sends it to sunflower
    x86_64-sunflower.json   # The target that sunflower is built to
    README.md               # The file you're reading!
    * (everything else)     # Config files used by cargo

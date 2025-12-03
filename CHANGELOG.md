@@ -1,7 +1,15 @@
 # Sunflower changelog
 
+## Development 11
+##### Version 3/12/25
+
+- Moved the sysinfo version consts and floppyfs release into the `VERSION` file
+- Allowed `Time` to know the current century
+- Fixed the top corners in rbod being in the wrong spots
+- Fixed up some small mistakes in READMEs, CHANGELOG & package versions
+
 ## Development 10
-##### Seeder 2/12/25
+##### Seeder 3/12/25
 
 - Added sunflower's very own build tool `seeder`, with it's own directory
 - Prevented formatting the floppy drive from permanently locking up the floppy driver (whoops!)

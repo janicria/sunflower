@@ -40,13 +40,13 @@ impl VGAChar {
     pub const SPACE: VGAChar = VGAChar::new(0x20, Color::White, Color::Black);
 
     /// A box character for top left corners.
-    pub const TOPLEFT_CORNER: u8 = 0xC9;
+    pub const TOPLEFT_CORNER: VGAChar = VGAChar::new(0xC9, Color::Grey, Color::Black);
 
     /// A box character for bottom left corners.
     pub const BOTTOMLEFT_CORNER: u8 = 0xC8;
 
     /// A box character for top right corners.
-    pub const TOPRIGHT_CORNER: u8 = 0xBB;
+    pub const TOPRIGHT_CORNER: VGAChar = VGAChar::new(0xBB, Color::Grey, Color::Black);
 
     /// A box character for bottom right corners.
     pub const BOTTOMRIGHT_CORNER: VGAChar = VGAChar::new(0xBC, Color::Grey, Color::Black);

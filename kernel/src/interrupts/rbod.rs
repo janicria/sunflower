@@ -11,6 +11,7 @@ use crate::{
     time::{self, Time},
     vga::{
         buffers::{self, BUFFER_HEIGHT, BUFFER_WIDTH, YoinkedBuffer},
+        cursor,
         print::{self, Color, Corner, VGAChar},
     },
 };
@@ -84,6 +85,7 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     BIG_ERRS.fetch_add(1, Ordering::Relaxed);
     time::set_waiting_char(false);
     time::WAITING_CHAR.store(false, Ordering::Relaxed);
+    cursor::ALLOW_ROW_0.store(true, Ordering::Relaxed);
     speaker::stop(); // in case anything was playing, prevent it from playing forever
     motor::force_disable(); // in case it was on
 
@@ -93,12 +95,9 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
     buffers::clear();
 
     // Begin the printing
-    print::write_char(VGAChar::TOPLEFT_CORNER, Color::White, Color::Black);
-    print!("------------------------------------------------------------------------------");
-    print::write_char(VGAChar::TOPRIGHT_CORNER, Color::Grey, Color::Black);
     print!(
         fg = LightRed,
-        "\n                An unrecoverable error has occurred: "
+        "\n\n                An unrecoverable error has occurred: "
     );
     println!("{err:?}\n\n\n                                  ERROR INFO");
 
@@ -153,13 +152,14 @@ pub fn rbod(err: ErrorCode, info: RbodErrInfo, err_handler: Option<ErrCodeHandle
         "\n\n                             PRESS KEY TO PROCEED\n"
     );
 
+    // Set the corner chars
     print::write_char(VGAChar::BOTTOMLEFT_CORNER, Color::Grey, Color::Black);
-    print!("------------------------------------------------------------------------------");
-
-    // Set the last
+    // Safety: The buffer is exclusively available to rbod by this point
     unsafe {
         buffers::BUFFER[BUFFER_HEIGHT as usize - 1][BUFFER_WIDTH as usize - 1] =
-            VGAChar::BOTTOMRIGHT_CORNER
+            VGAChar::BOTTOMRIGHT_CORNER;
+        buffers::BUFFER[0][0] = VGAChar::TOPLEFT_CORNER;
+        buffers::BUFFER[0][BUFFER_WIDTH as usize - 1] = VGAChar::TOPRIGHT_CORNER
     }
 
     // Always succeeds
@@ -325,6 +325,7 @@ fn rbod_colors() {
 fn panic(info: &PanicInfo) -> ! {
     #[cfg(test)]
     {
+        // tests fail by panicking
         println!("- failed, see failure cause below\n{info}");
         exit_qemu(true);
     }

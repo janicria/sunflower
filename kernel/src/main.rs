@@ -36,6 +36,7 @@ mod speaker;
 mod startup;
 
 /// Handles system information.
+#[macro_use]
 mod sysinfo;
 
 /// Handles running tests and writing to serial ports.

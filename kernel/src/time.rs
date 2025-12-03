@@ -163,11 +163,15 @@ pub fn timer(start: u64, timeout: u64) -> bool {
     start + timeout > get_time()
 }
 
+/// The century the kernel was complied.
+/// This value is only updated when the kernel is built so isn't too precise.
+const CENTURY: u16 = crate::env_as_int!("SFK_TIME_CENTURY", u16);
+
 /// Second-precise time value.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Time {
-    /// The current year, 0-99
-    year: u8,
+    /// The current year, 0-65535
+    year: u16,
 
     /// The current month, 1-12
     month: u8,
@@ -192,7 +196,7 @@ impl Time {
         // Safety: Reading from valid registers.
         unsafe {
             Time {
-                year: read_cmos_reg(0x9),
+                year: read_cmos_reg(0x9) as u16,
                 month: read_cmos_reg(0x8),
                 day: read_cmos_reg(0x7),
                 hour: read_cmos_reg(0x4),
@@ -267,7 +271,7 @@ extern "C" fn sync_time_to_rtc() {
         time.min = bcd_to_bin(time.min);
         time.day = bcd_to_bin(time.day);
         time.month = bcd_to_bin(time.month);
-        time.year = bcd_to_bin(time.year);
+        time.year = bcd_to_bin(time.year as u8) as u16;
 
         // Preserve 24 hour flag
         hour = ((hour & 0x0F) + (((hour & 0x70) / 16) * 10)) | (hour & TWENTY_FOUR_HR_FLAG);
@@ -278,6 +282,9 @@ extern "C" fn sync_time_to_rtc() {
         // Clear 24 / 12 hour flag and convert to 24 hour time
         time.hour = ((hour & 0b1111111) + 12) % 24;
     }
+
+    // Add the century
+    time.year += CENTURY * 100;
 
     // Ignore possible error as wait_for_rtc_sync checks this later
     _ = LAUNCH_TIME.init(time);
@@ -323,9 +330,9 @@ mod tests {
     #[test_case]
     fn rtc_contains_sane_values() {
         let time = LAUNCH_TIME.read().unwrap();
-        assert!(time.year < 100);
+        assert!((time.year - CENTURY * 100) < 100);
         assert!(time.month != 0 && time.month <= 12);
-        assert!(time.day != 0 && time.day < 32);
+        assert!(time.day != 0 && time.day <= 31);
         assert!(time.hour < 24);
         assert!(time.min < 60);
         assert!(time.sec < 60);

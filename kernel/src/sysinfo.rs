@@ -8,14 +8,16 @@ use crate::{
 use core::{arch::asm, fmt::Display};
 use libutil::{InitError, TableDescriptor};
 
-/// The current version of the sunflower kernel.
-static VERSION_LONG: &str = "SFK-00-Development-10";
-
-/// A shortened version of the kernel's version.
-static VERSION_SHORT: &str = "SFK-Dev-10";
-
-/// Message updated each patch.
-static PATCH_QUOTE: &str = "wow! seeder";
+/// Parses an environment variable as an int an compile time.
+#[macro_export]
+macro_rules! env_as_int {
+    ($env: expr, $t: ty) => {
+        match <$t>::from_str_radix(env!($env), 10) {
+            Ok(v) => v,
+            Err(_) => panic!(concat!("Failed parsing env var ", $env)),
+        }
+    };
+}
 
 /// CPU Vendor ID returned from cpuid.
 #[unsafe(no_mangle)]
@@ -131,9 +133,10 @@ impl SystemInfo {
         let time = time::get_time();
 
         SystemInfo {
-            sfk_version_long: VERSION_LONG,
-            sfk_version_short: VERSION_SHORT,
-            patch_quote: PATCH_QUOTE,
+            // Version env vars passed via build script
+            sfk_version_long: env!("SFK_VERSION_LONG"),
+            sfk_version_short: env!("SFK_VERSION_SHORT"),
+            patch_quote: env!("SFK_PATCH_QUOTE"),
 
             cpu_vendor: get_cpuid().unwrap_or("Unknown"),
             debug: cfg!(feature = "debug_info"),
