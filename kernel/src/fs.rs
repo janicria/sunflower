@@ -6,8 +6,9 @@
 
 use bitflags::bitflags;
 use core::{fmt::Display, mem};
-pub use floppyfs::{alloc_inode, init_floppyfs, read_inode};
+pub use floppyfs::{FLOPPYFS_INIT, alloc_inode, init_floppyfs, read_inode};
 use libutil::AsBytes;
+
 /// A floppy disk connected filesystem.
 mod floppyfs;
 

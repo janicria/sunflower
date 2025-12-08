@@ -1,4 +1,8 @@
-use crate::{ports, startup, time};
+use crate::{
+    exit_on_err, ports,
+    startup::{self, ExitCode},
+    time,
+};
 use core::fmt::Display;
 use disk::DiskError;
 use fifo::{FifoError, FloppyCommand, SendCommandError, SenseIntState, SenseInterruptError};
@@ -26,13 +30,13 @@ pub static FLOPPY_SPACE: InitLater<u16> = InitLater::uninit();
 pub static DRIVE_ONE: UnsafeFlag = UnsafeFlag::new(false);
 
 /// Timeout until we assume a command failed, in kernel ticks.
-static TIMEOUT: u64 = 30;
+const TIMEOUT: u64 = 30;
 
 /// The number of retries before we assume the controller is unusable.
-static RETRIES: u8 = 5;
+const RETRIES: u8 = 5;
 
 /// Set after a reset or error occurs.
-static ST0_ERR_OR_RESET: u8 = 0xC0;
+const ST0_ERR_OR_RESET: u8 = 0xC0;
 
 /// Ports used for floppy operations.
 /// To access a port use: `FLOPPY_BASE + Port`
@@ -146,8 +150,14 @@ impl Display for FloppyInfo {
     }
 }
 
+/// Runs the init function for the FDC.
+pub fn init_wrapper() -> ExitCode<FloppyError> {
+    exit_on_err!(init());
+    ExitCode::Ok
+}
+
 /// Initialises the first floppy controller found.
-pub fn init() -> Result<(), FloppyError> {
+fn init() -> Result<(), FloppyError> {
     /// The CMOS register responsible for storing floppy information.
     static CMOS_FLOPPY_REG: u8 = 0x10;
 

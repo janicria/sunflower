@@ -1,5 +1,16 @@
 # Sunflower changelog
 
+# Development 12
+##### Misc improvements 8/12/25
+
+- Added the new `ExitCode` return type to `startup::run`
+- Updated screenshots!!
+- Changed topbar color to grey
+- Seeder actually compiles now
+- Seeder now has better warnings when running with strange audio flag combinations
+- Add floppy disk statistics & make some floppy statics const
+- Formatted kernel manifest
+
 ## Development 11
 ##### Version 3/12/25
 

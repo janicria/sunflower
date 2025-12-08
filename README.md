@@ -21,7 +21,7 @@ The latest version of Sunflower currently supports:
 ## Building
 Sunflower uses it's very own build tool, `seeder`, which requires [`Rust`](https://www.rust-lang.org/tools/install) to be installed, and can be run via `cargo sdr`. 
 
-Once you've installed rust you can just run the following commands to build a bootimage image of sunflower which should appear at `sunflower.bin` 
+Once you've installed rust you can just run the following commands to build a bootimage image of sunflower, which should appear at `sunflower.bin` 
 ```
 git clone https://github.com/janicria/sunflower.git
 cd sunflower
@@ -56,7 +56,7 @@ Options:
 
 ## Running
 ### QEMU
-Sunflower supports [`QEMU`](https://www.qemu.org/download/) for running the kernel in an emulator. After installing it, you can just just `cargo sdr run`
+Sunflower supports [`QEMU`](https://www.qemu.org/download/) for running the kernel in an emulator. After installing it, you can just run `cargo sdr run` with an audio flag 
 ```
 cargo sdr run --nosound     # Run without audio 
 cargo sdr run --pipewire    # Run with pipewire audio support
@@ -103,6 +103,6 @@ Ctrl+Alt+F7 / SysRq+F7 - Show help
 ## Screenshots
 
 ![Sunflower post boot screen](./screenshots/boot.png)
+![System information syscmd](./screenshots/sysinfo.png)
 ![Rainbow box of death](./screenshots/rbod.png)
 ![Help screen](./screenshots/help.png)
-![System information syscmd](./screenshots/sysinfo.png)

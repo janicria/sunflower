@@ -2,14 +2,14 @@
 
 [kernel]
 # The current version of the sunflower kernel.
-version_long = "SFK-00-Development-11"
+version_long = "SFK-00-Development-12"
 
 # A shortened version of the kernel's version.
-version_short = "SFK-Dev-11"
+version_short = "SFK-Dev-12"
 
 # Message updated each patch & displayed on the topbar.
 # Must be exactly 11 characters.
-patch_quote = "version!! ."
+patch_quote = "Sun12 <3  ."
 
 #  When the filesystem driver was last updated in UTC
 [floppyfs]

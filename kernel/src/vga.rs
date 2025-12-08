@@ -1,6 +1,6 @@
 #[cfg(test)]
 use crate::tests::write_serial;
-use crate::{interrupts, sysinfo::SystemInfo};
+use crate::{interrupts, startup::ExitCode, sysinfo::SystemInfo};
 use buffers::RawBuffer;
 use core::{convert::Infallible, sync::atomic::Ordering};
 use cursor::{ALLOW_ROW_0, CursorPos};
@@ -16,18 +16,16 @@ pub mod cursor;
 #[macro_use]
 pub mod print;
 
-/// Connects the `BUFFER` static to the vga text buffer.
-///
-/// Fills it with spaces, allowing the vga cursor to blink anywhere.
-///
-/// Finally, prints the welcome message.
-pub fn init() -> Result<(), Infallible> {
-    unsafe {
-        let buf = &raw mut buffers::BUFFER;
-        *buf = &mut *(Corner::TopLeft as usize as *mut RawBuffer);
-    }
 
-    // Print welcome message
+/// Connects the `BUFFER` static to the vga text buffer,
+/// and fills it with spaces, allowing the cursor to blink anywhere.
+///
+/// # Safety
+/// The buffer must not be used ANYWHERE.
+pub unsafe fn init() -> ExitCode<Infallible> {
+    let buf = &raw mut buffers::BUFFER;
+    // Safety: The static isn't being used anywhere else and is being loaded with a valid buf.
+    unsafe { *buf = &mut *(Corner::TopLeft as usize as *mut RawBuffer) }
     buffers::clear();
 
     if cfg!(test) {
@@ -38,7 +36,7 @@ pub fn init() -> Result<(), Infallible> {
         println!(fg = LightCyan, "Sunflower!\n");
     }
 
-    Ok(())
+    ExitCode::Infallible
 }
 
 /// Draws the topbar with `title` as it's title.
@@ -65,7 +63,7 @@ pub fn draw_topbar(title: &'static str) {
     let sysinfo = SystemInfo::now();
     print!(
         fg = Black,
-        bg = Cyan,
+        bg = LightGrey,
         " {} on {} | {title} | Help: SysRq / PrntScr F7 | {}",
         sysinfo.sfk_version_short,
         sysinfo.cpu_vendor,

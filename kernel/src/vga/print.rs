@@ -2,7 +2,7 @@ use super::{
     buffers::{BUFFER_HEIGHT, BUFFER_WIDTH, YoinkedBuffer},
     cursor::{self, CursorPos, CursorShift},
 };
-use core::fmt::{self, Write};
+use core::{fmt::{self, Write}, sync::atomic::Ordering};
 
 #[cfg(test)]
 use crate::tests::write_serial;
@@ -60,6 +60,11 @@ impl VGAChar {
     /// Constructs a new color using `fg` as the text color and `bg` as the background color.
     pub const fn new(char: u8, fg: Color, bg: Color) -> VGAChar {
         VGAChar((char as u16) | (bg as u16) << 12 | (fg as u16) << 8)
+    }
+
+    /// Converts the char to it's integer form.
+    pub const fn as_u16(&self) -> u16 {
+        self.0
     }
 }
 
@@ -168,7 +173,8 @@ fn newline() {
 
         // If we've reached the end, move all rows (except topbar) up one and clear the last row
         if row >= BUFFER_HEIGHT - 1 {
-            for row in 1..BUFFER_HEIGHT as usize - 1 {
+            let top_row = !cursor::ALLOW_ROW_0.load(Ordering::Relaxed) as usize;
+            for row in top_row..BUFFER_HEIGHT as usize - 1 {
                 buf[row] = buf[row + 1]
             }
 

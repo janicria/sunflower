@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicU64, Ordering};
+
 use super::{
     DRIVE_ONE, FloppyError, FloppyPort, ST0_ERR_OR_RESET, TIMEOUT,
     fifo::{self, FloppyCommand},
@@ -5,26 +7,32 @@ use super::{
 use crate::{floppy::motor, startup, time};
 use thiserror::Error;
 
+/// The number of successfully read bytes from the floppy drive.
+pub static DISK_READ_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// The number of successfully written bytes to the floppy drive.
+pub static DISK_WRITTEN_BYTES: AtomicU64 = AtomicU64::new(0);
+
 /// The magnetic encoding mode bit which can be ORed into commands (required for read / write)
-pub static MFM_BIT: u8 = 0x40;
+pub const MFM_BIT: u8 = 0x40;
 
 /// The number of retries before a disk operation fails and the floppy driver is disabled.
-static DISK_RETRIES: u8 = 8;
+const DISK_RETRIES: u8 = 8;
 
 /// The max number of heads on a floppy disk.
-pub static HEADS: u16 = 2;
+pub const HEADS: u16 = 2;
 
 /// The max number of cylinders on a floppy that sunflower supports.
-pub static CYLINDERS: u16 = 80;
+pub const CYLINDERS: u16 = 80;
 
 /// The max number of sectors per cylinder that sunflower supports.
-pub static SECTORS: u16 = 18;
+pub const SECTORS: u16 = 18;
 
 /// The size of a sector which sunflower supports, measured in bytes.
-pub static SECTOR_SIZE: usize = 512;
+pub const SECTOR_SIZE: usize = 512;
 
 /// Bytes per sector, used in the formula 128^2^X = 512, where X=2.
-static BYTES_PER_SECTOR: u8 = 2;
+const BYTES_PER_SECTOR: u8 = 2;
 
 /// An error which occurred due to a disk operation.
 #[derive(Error, Debug)]
@@ -311,6 +319,7 @@ pub fn read(ptr: u16, buf: &mut [u8]) -> Result<(), FloppyError> {
         // Safety: Just finished a read command
         unsafe { read_write_status()? };
         motor::disable_motor();
+        DISK_READ_BYTES.fetch_add(buf.len() as u64, Ordering::Relaxed);
         return Ok(());
     }
 
@@ -375,6 +384,7 @@ pub fn write(ptr: u16, buf: &[u8]) -> Result<(), FloppyError> {
             warn!("failed retrieving floppy write status: {e}");
         }*/
         motor::disable_motor();
+        DISK_WRITTEN_BYTES.fetch_add(buf.len() as u64, Ordering::Relaxed);
         return Ok(());
     }
 

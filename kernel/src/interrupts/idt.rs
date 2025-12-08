@@ -84,10 +84,9 @@ macro_rules! rbod_wrapper {
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
             naked_asm!(
-                concat!("mov rdi, ", stringify!($err)), // err code
-                "mov ERR_CODE, rdi",                    // store err code in static
-                "mov rdi, rsp",                         // store stack frame in first arg
-                "call setup_rbod",                      // never returns so need for iretq
+                concat!("mov qword ptr ERR_CODE, ", stringify!($err)), // err code
+                "mov rdi, rsp",    // store stack frame in first arg
+                "jmp setup_rbod", // never returns so need for iretq
             )
         }
 

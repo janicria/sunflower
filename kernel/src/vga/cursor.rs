@@ -7,9 +7,6 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 pub static ALLOW_ROW_0: AtomicBool = AtomicBool::new(false);
 
 /// The VGA's current cursor info.
-///
-/// Access this static via the `CursorPos` associated functions,
-/// though nothing bad will happen if you access this directly.
 static CURSOR: CursorPos = CursorPos {
     column: AtomicU8::new(0),
     row: AtomicU8::new(0),

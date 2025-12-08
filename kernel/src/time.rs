@@ -1,17 +1,17 @@
 use crate::{
     interrupts,
     ports::{self, Port},
-    startup,
-    vga::print::Corner,
+    startup::{self, ExitCode},
+    vga::print::{Color, Corner, VGAChar},
 };
 use core::{
     arch::{asm, naked_asm},
-    convert::Infallible,
     fmt::Display,
     hint, ptr,
     sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
 };
-use libutil::{InitError, InitLater};
+use libutil::InitLater;
+use thiserror::Error;
 
 /// The base frequency of the PIT.
 pub static PIT_BASE_FREQ: u64 = 1193180;
@@ -29,7 +29,11 @@ static CMOS_REG_B: u8 = 0x8B;
 pub static WAITING_CHAR: AtomicBool = AtomicBool::new(true);
 
 /// Sets the timer interval in channel 0 to 10 ms.
-pub fn set_timer_interval() -> Result<(), &'static str> {
+pub fn set_timer_interval() -> ExitCode<&'static str> {
+    if !startup::PIC_INIT.load() {
+        return ExitCode::Error("The PIC isn't init!");
+    }
+
     static MS_PER_TICK: u16 = 10;
     // divide by 1000 to convert from ms to seconds
     static TICK_INTERVAL: u16 = MS_PER_TICK * (PIT_BASE_FREQ / 1000) as u16;
@@ -38,10 +42,6 @@ pub fn set_timer_interval() -> Result<(), &'static str> {
     ///
     /// [Reference](https://wiki.osdev.org/Programmable_Interval_Timer#I/O_Ports)
     static COMMAND: u8 = 0b0_111_11_00;
-
-    if !startup::pic_init() {
-        do yeet "PIC is not initialised!!!";
-    }
 
     interrupts::sti();
 
@@ -54,7 +54,7 @@ pub fn set_timer_interval() -> Result<(), &'static str> {
 
         startup::PIT_INIT.store(true);
     }
-    Ok(())
+    ExitCode::Infallible
 }
 
 /// Returns how many ticks the kernel has been running for.
@@ -71,30 +71,27 @@ pub extern "C" fn get_time() -> u64 {
 
 /// Toggles the waiting character on or off.
 pub fn set_waiting_char(show: bool) {
-    static PREV: AtomicU16 = AtomicU16::new(0);
-    static CHAR: u16 = 12289;
-    let ptr = Corner::TopRight as usize as *mut u16;
-
     if !WAITING_CHAR.load(Ordering::Relaxed) {
         return;
     }
 
-    let write_waiting_char = |char: u16| {
+    const CHAR: u16 = VGAChar::new(1, Color::Black, Color::LightGrey).as_u16();
+    static PREV: AtomicU16 = AtomicU16::new(0);
+    
+    let ptr = Corner::TopRight as usize as *mut u16;
+    let write_char = |char: u16| {
         // Safety: TopRight is valid, aligned & won't do anything weird when written to
-        unsafe {
-            ptr::write_volatile(ptr, char);
-        }
+        unsafe { ptr::write_volatile(ptr, char) }
     };
 
     if show {
         // Safety: TopRight is valid, aligned & won't do anything weird when read from
         let prev = unsafe { ptr::read_volatile(ptr) };
         PREV.store(prev, Ordering::Relaxed);
-        write_waiting_char(CHAR);
+        write_char(CHAR);
     } else {
-        // ptr = PREV
         let prev = PREV.load(Ordering::Relaxed);
-        write_waiting_char(prev);
+        write_char(prev);
     }
 }
 
@@ -102,7 +99,7 @@ pub fn set_waiting_char(show: bool) {
 ///
 /// Never returns if external interrupts are disabled.
 pub fn wait(ticks: u64) {
-    if !startup::pit_init() {
+    if !startup::PIT_INIT.load() {
         warn!("attempted waiting (with ints) with an uninit PIT!");
         return;
     }
@@ -135,7 +132,7 @@ pub fn wait_no_ints(ticks: u64) {
     /// How many ticks have passed since the function was called.
     static TIME: AtomicU64 = AtomicU64::new(0);
 
-    if !startup::pit_init() {
+    if !startup::PIT_INIT.load() {
         warn!("attempted waiting (without ints) with an uninit PIT!");
         return;
     }
@@ -228,29 +225,53 @@ pub unsafe fn read_cmos_reg(reg: u8) -> u8 {
 }
 
 /// Sets up RTC interrupts in IRQ 8.
-pub fn setup_rtc_int() -> Result<(), Infallible> {
+pub fn setup_rtc_int() -> ExitCode<&'static str> {
+    if !startup::PIC_INIT.load() {
+        return ExitCode::Error("The PIC isn't init!");
+    }
+
     interrupts::cli();
 
     // Set bit 6 in register B to enable interrupts.
-    // Safety: Sending a valid command w/o external interrupts enabled
+    // Safety: Sending a valid command with external interrupts disabled
     unsafe {
         let prev = read_cmos_reg(CMOS_REG_B);
         ports::writeb(Port::CMOSSelector, CMOS_REG_B);
         ports::writeb(Port::CMOSRegister, prev | 0b1000000);
     }
 
+    // Safety: Just enabled it above!
+    unsafe { startup::RTC_IRQ_INIT.store(true) }
+
     interrupts::sti();
-    Ok(())
+    ExitCode::Infallible
 }
 
 /// Waits for the RTC sync to finish then checks if `LAUNCH_TIME` has been successfully loaded.
-pub fn wait_for_rtc_sync() -> Result<(), InitError<Time>> {
-    // Wait until the RTC has been loaded into LAUNCH_TIME
+pub fn wait_for_rtc_sync() -> ExitCode<RtcSyncWaitError> {
+    if !startup::RTC_IRQ_INIT.load() {
+        return ExitCode::Error(RtcSyncWaitError::NoIrq);
+    }
+
+    // Wait until the time has been loaded into LAUNCH_TIME
     while !RTC_SYNC_DONE.load(Ordering::Relaxed) {
         hint::spin_loop(); // better performance via pause instruction
     }
 
-    LAUNCH_TIME.read().map(|_| ())
+    if let Err(e) = LAUNCH_TIME.read() {
+        return ExitCode::Error(RtcSyncWaitError::NoStatic(e.state));
+    }
+
+    ExitCode::Ok
+}
+
+#[derive(Error, Debug)]
+pub enum RtcSyncWaitError {
+    #[error("The RTC IRQ isn't enabled!")]
+    NoIrq,
+
+    #[error("The RTC handler failed updating the launch time, static's init state is {0}")]
+    NoStatic(u8),
 }
 
 /// Ran by RTC handler when the update ended interrupt occurs.
@@ -297,9 +318,8 @@ extern "C" fn sync_time_to_rtc() {
 
 #[cfg(test)]
 mod tests {
-    use crate::speaker;
-
     use super::*;
+    use crate::speaker;
 
     /// Tests that `wait` waits for the correct amount of time.
     #[test_case]
@@ -315,7 +335,7 @@ mod tests {
     /// Tests that `wait`, `wait_no_ints` & `play_special` immediately return if the PIT failed initialisation.
     #[test_case]
     fn wait_services_require_pit() {
-        let init = startup::pit_init();
+        let init = startup::PIT_INIT.load();
         unsafe { startup::PIT_INIT.store(false) }
 
         // Test fails due to timeout

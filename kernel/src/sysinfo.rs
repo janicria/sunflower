@@ -1,11 +1,12 @@
 use crate::{
-    floppy::{self},
+    floppy::{self, disk},
+    fs,
     gdt::{self, Gdt},
     interrupts::{self, Idt},
-    startup,
+    startup::{self, ExitCode},
     time::{self, Time},
 };
-use core::{arch::asm, fmt::Display};
+use core::{arch::asm, fmt::Display, sync::atomic::Ordering};
 use libutil::{InitError, TableDescriptor};
 
 /// Parses an environment variable as an int an compile time.
@@ -23,9 +24,10 @@ macro_rules! env_as_int {
 #[unsafe(no_mangle)]
 static mut VENDOR: [u8; 12] = *b"Unknown     ";
 
-/// Checks if the cpuid instruction can be used.
-/// [`Reference`](https://wiki.osdev.org/CPUID#How_to_use_CPUID)
-pub fn check_cpuid() -> Result<(), &'static str> {
+/// Checks if the [cpuid](https://wiki.osdev.org/CPUID) instruction can be used.
+/// # Safety
+/// The [`VENDOR`] static must not be accessed anywhere during the lifetime of this function.
+pub unsafe fn check_cpuid() -> ExitCode<&'static str> {
     unsafe {
         asm!(
             "push rax",                        // save rax
@@ -45,13 +47,14 @@ pub fn check_cpuid() -> Result<(), &'static str> {
         )
     };
 
-    Err("Instruction not present")
+    ExitCode::Error("Instruction not present")
 }
 
 /// Runs cpuid and returns it's info in the `VENDOR` static.
 /// # Safety
 /// The cpuid instruction must be available.
-unsafe fn load_vendor() -> Result<(), &'static str> {
+#[inline(never)] // NOTE: check_cpuid expects this to NOT be inlined and page faults if it is!!
+unsafe fn load_vendor() -> ExitCode<&'static str> {
     /// Where eax, ebx, edx, ecx and rbx are saved during cpuid.
     #[unsafe(no_mangle)]
     static mut REG_BKP: [u32; 4] = [0; 4];
@@ -81,10 +84,9 @@ unsafe fn load_vendor() -> Result<(), &'static str> {
     };
 
     if get_cpuid().is_none() {
-        return Err("Invalid vendor ID");
+        return ExitCode::Error("Non UTF-8 vendor ID");
     }
-
-    Ok(())
+    ExitCode::Ok
 }
 
 /// Tries to return the value of the `VENDOR` static as a str.
@@ -108,6 +110,9 @@ pub struct SystemInfo {
     pub floppy_space: Result<&'static u16, InitError<u16>>,
     pub floppy_drive: u8,
     pub fdc_init: bool,
+    pub floppyfs_init: bool,
+    pub floppy_read_bytes: u64,
+    pub floppy_written_bytes: u64,
 
     // Time
     pub time: u64,
@@ -145,6 +150,9 @@ impl SystemInfo {
             floppy_space: floppy::FLOPPY_SPACE.read(),
             floppy_drive: floppy::DRIVE_ONE.load() as u8,
             fdc_init: startup::FLOPPY_INIT.load(),
+            floppyfs_init: fs::FLOPPYFS_INIT.load(Ordering::Relaxed),
+            floppy_read_bytes: disk::DISK_READ_BYTES.load(Ordering::Relaxed),
+            floppy_written_bytes: disk::DISK_WRITTEN_BYTES.load(Ordering::Relaxed),
 
             time,
             time_secs: time / 100,
@@ -156,9 +164,9 @@ impl SystemInfo {
             idt_descriptor: interrupts::idt_register(),
 
             disable_enter: cfg!(feature = "disable_enter"),
-            pic_init: startup::pic_init(),
-            pit_init: startup::pit_init(),
-            kbd_init: startup::kbd_init(),
+            pic_init: startup::PIC_INIT.load(),
+            pit_init: startup::PIT_INIT.load(),
+            kbd_init: startup::KBD_INIT.load(),
         }
     }
 }
@@ -212,11 +220,17 @@ IDT init: {} with {}\n",
             "\nFloppy offset: 0x{:X}
 Floppy space: {} kB,
 Floppy drive number: {}
-Floppy init: {}",
+Floppy init: {}
+Floppyfs init: {}
+Floppy bytes read: {}
+Floppy bytes written: {}",
             self.floppy_offset.as_ref().unwrap_or(&&0),
             self.floppy_space.as_ref().unwrap_or(&&0),
             self.floppy_drive,
-            self.fdc_init
+            self.fdc_init,
+            self.floppyfs_init,
+            self.floppy_read_bytes,
+            self.floppy_written_bytes
         )
     }
 }

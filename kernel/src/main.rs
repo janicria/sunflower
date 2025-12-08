@@ -25,7 +25,6 @@ mod gdt;
 
 /// Handles various interrupts
 mod interrupts;
-
 /// Handles writing to and reading from specific I/O ports
 mod ports;
 
@@ -33,6 +32,7 @@ mod ports;
 mod speaker;
 
 /// Handles post-boot startup tasks.
+#[macro_use]
 mod startup;
 
 /// Handles system information.
@@ -57,19 +57,23 @@ compile_error!(
 /// Please don't run the kernel twice.
 #[unsafe(export_name = "_start")]
 pub unsafe extern "C" fn kmain() -> ! {
-    startup::run("Connected VGA", vga::init);
-    startup::run("Loaded IDT", interrupts::load_idt);
-    startup::run("Prepared TSS load", gdt::setup_tss);
-    startup::run("Loaded GDT", gdt::load_gdt);
-    startup::run("Finished TSS load", gdt::load_tss);
-    startup::run("Initialised PIC", interrupts::init_pic);
-    startup::run("Prepared RTC sync", time::setup_rtc_int);
-    startup::run("Set PIT frequency", time::set_timer_interval);
-    startup::run("Initialised keyboard", interrupts::init_kbd);
-    startup::run("Checked CPUID", sysinfo::check_cpuid);
-    startup::run("Finished RTC sync", time::wait_for_rtc_sync);
-    startup::run("Initialised floppy drive", floppy::init);
-    startup::run("Mounted floppy drive", fs::init_floppyfs);
+    // Safety: Considering that this is the kernel entry point,
+    // I'm pretty sure these startup tasks are only being ran once
+    unsafe {
+        startup::run("Connected VGA", vga::init);
+        startup::run("Loaded IDT", interrupts::load_idt);
+        startup::run("Prepared TSS load", gdt::setup_tss);
+        startup::run("Loaded GDT", gdt::load_gdt);
+        startup::run("Finished TSS load", gdt::load_tss);
+        startup::run("Initialised PIC", interrupts::init_pic);
+        startup::run("Prepared RTC sync", time::setup_rtc_int);
+        startup::run("Set PIT frequency", time::set_timer_interval);
+        startup::run("Initialised keyboard", interrupts::init_kbd);
+        startup::run("Checked CPUID", sysinfo::check_cpuid);
+        startup::run("Finished RTC sync", time::wait_for_rtc_sync);
+        startup::run("Initialised floppy drive", floppy::init_wrapper);
+        startup::run("Mounted floppy drive", fs::init_floppyfs);
+    }
 
     #[cfg(test)]
     tests();

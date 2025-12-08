@@ -1,8 +1,9 @@
-use crate::{time, vga::cursor};
-use core::{arch::asm, convert::Infallible, fmt::Display, hint};
+use crate::{exit_on_err, startup::ExitCode, time, vga::cursor};
+use core::{arch::asm, fmt::Display, hint};
 use idt::InterruptDescriptor;
-use keyboard::KbdInitError;
 use libutil::{InitLater, LoadRegisterError, TableDescriptor};
+pub use pic::init as init_pic;
+pub use keyboard::init as init_kbd;
 
 /// IDT and exception handlers.
 mod idt;
@@ -30,7 +31,7 @@ pub struct Idt([InterruptDescriptor; 256]);
 /// The interrupt stack frame.
 #[derive(Debug, Default)]
 #[repr(C)]
-struct IntStackFrame {
+pub struct IntStackFrame {
     ip: u64,
     cs: u64,
     flags: u64,
@@ -48,9 +49,12 @@ impl Display for IntStackFrame {
     }
 }
 
-/// Loads the IDT.
-pub fn load_idt() -> Result<(), LoadRegisterError<Idt>> {
-    let idt = IDT.init(Idt::new())?;
+/// Loads the IDT into the `IDT` static.
+///
+/// # Safety
+/// Only run this once, early into startup.
+pub unsafe fn load_idt() -> ExitCode<LoadRegisterError<Idt>> {
+    let idt = exit_on_err!(IDT.init(Idt::new()), Stop);
     dbg_info!("IDT loaded at 0x{:x}", idt as *const Idt as u64);
 
     // Safety: Using properly filled out IDT.
@@ -58,29 +62,18 @@ pub fn load_idt() -> Result<(), LoadRegisterError<Idt>> {
 
     // Return Err if sidt (store IDT) != descriptor passed to lidt
     if idt_register() != loaded_idt {
-        do yeet LoadRegisterError::Store("IDT");
+        return ExitCode::Stop(LoadRegisterError::Store("IDT"));
     }
 
-    Ok(())
+    ExitCode::Ok
 }
 
-/// Returns the current value in the GDT register.
+/// Returns the current value in the IDT register.
 pub fn idt_register() -> TableDescriptor<Idt> {
     let mut idt = TableDescriptor::invalid();
     // Safety: We're just storing a value
     unsafe { asm!("sidt [{}]", in(reg) (&mut idt), options(preserves_flags, nostack)) };
     idt
-}
-
-/// Initialises the PIC.
-pub fn init_pic() -> Result<(), Infallible> {
-    pic::init();
-    Ok(())
-}
-
-/// Initialises the PS/2 keyboard.
-pub fn init_kbd() -> Result<(), KbdInitError> {
-    keyboard::init()
 }
 
 /// Repeatedly loops polling the keyboard.
@@ -128,7 +121,7 @@ pub fn cli() {
 
 /// Causes a triple fault.
 /// Can be used as the stupidest way ever to restart the device.
-fn triple_fault() {
+pub fn triple_fault() {
     // Safety: We're deliberately being very unsafe here
     unsafe {
         let descriptor = TableDescriptor::<Idt>::invalid();

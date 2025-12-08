@@ -1,9 +1,10 @@
 use crate::{
-    interrupts,
-    startup::{self, GDT_INIT},
+    exit_on_err, interrupts,
+    startup::{self, ExitCode, GDT_INIT},
 };
 use core::{arch::asm, mem};
 use libutil::{InitError, InitLater, LoadRegisterError, TableDescriptor};
+use thiserror::Error;
 
 /// The number of entries the GDT contains.
 static GDT_ENTRIES: usize = 5;
@@ -117,7 +118,7 @@ impl SystemSegmentDescriptor {
 
 /// Loads a new TSS into the `TSS` static.
 /// Gives the first IST stack pointer it's own stack.
-pub fn setup_tss() -> Result<(), InitError<Tss>> {
+pub fn setup_tss() -> ExitCode<InitError<Tss>> {
     // Calculate stack start & end addresses
     let mut tss = Tss::default();
     let stack_addr = &raw const STACK as u64;
@@ -127,18 +128,16 @@ pub fn setup_tss() -> Result<(), InitError<Tss>> {
     // Load the TSS into it's static
     tss.ist[0] = stack_end_addr;
     tss.iomap = size_of::<Tss>() as u16;
-    TSS.init(tss)?;
+    exit_on_err!(TSS.init(tss));
     dbg_info!("TSS at 0x{:x}", &raw const TSS as u64);
 
-    Ok(())
+    ExitCode::Ok
 }
 
 /// Loads the TSS into the task register.
-pub fn load_tss() -> Result<(), LoadRegisterError<Tss>> {
-    // Bail if no TSS or no GDT
-    TSS.read()?;
-    if !startup::gdt_init() {
-        do yeet LoadRegisterError::Other("GDT is not initialised!!!")
+pub fn load_tss() -> ExitCode<LoadTssError> {
+    if !startup::GDT_INIT.load() {
+        return ExitCode::Error(LoadTssError::NoGdt);
     }
 
     // Safety: The TSS descriptor is loaded into a valid GDT by this point
@@ -150,14 +149,23 @@ pub fn load_tss() -> Result<(), LoadRegisterError<Tss>> {
 
     // Check if TSS_SEGMENT_OFFSET was actually stored
     if stored_offset != TSS_SEGMENT_OFFSET {
-        do yeet LoadRegisterError::Store("TSS offset")
+        ExitCode::Error(LoadTssError::BadStore(stored_offset))
+    } else {
+        ExitCode::Ok
     }
+}
 
-    Ok(())
+#[derive(Error, Debug)]
+pub enum LoadTssError {
+    #[error("The GDT isn't initialised!")]
+    NoGdt,
+
+    #[error("Stored TSS offset ({0}), doesn't match const ({TSS_SEGMENT_OFFSET})")]
+    BadStore(u64),
 }
 
 /// Loads the GDT into the GDTR register.
-pub fn load_gdt() -> Result<(), LoadRegisterError<Gdt>> {
+pub fn load_gdt() -> ExitCode<LoadRegisterError<Gdt>> {
     interrupts::cli();
     let mut gdt = Gdt([const { SegmentDescriptor(0) }; GDT_ENTRIES]);
 
@@ -182,16 +190,16 @@ pub fn load_gdt() -> Result<(), LoadRegisterError<Gdt>> {
     }
 
     // Load the GDT into the static
-    let _gdt = GDT.init(gdt)?;
-    dbg_info!("GDT loaded at 0x{:x}", _gdt as *const Gdt as u64);
+    let gdt = exit_on_err!(GDT.init(gdt));
+    dbg_info!("GDT loaded at 0x{:x}", gdt as *const Gdt as u64);
 
     // Load the GDT to it's register
-    let descriptor = TableDescriptor::new(GDT.read()?);
+    let descriptor = TableDescriptor::new(gdt);
     // Safety: The GDT and it's descriptor MUST be valid by this point
     unsafe { asm!("lgdt ({0})", in(reg) &descriptor, options(att_syntax, nostack)) }
 
     if gdt_register() != descriptor {
-        do yeet LoadRegisterError::Store("GDT");
+        return ExitCode::Error(LoadRegisterError::Store("GDT"));
     }
 
     // Safety: Just loaded the GDT with a code segment
@@ -200,7 +208,7 @@ pub fn load_gdt() -> Result<(), LoadRegisterError<Gdt>> {
         GDT_INIT.store(true)
     }
 
-    Ok(())
+    ExitCode::Ok
 }
 
 /// Returns the current value in the GDT register.

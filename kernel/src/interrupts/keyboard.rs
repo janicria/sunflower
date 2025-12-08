@@ -1,7 +1,8 @@
 use crate::{
     interrupts::rbod::{ErrorCode, RbodErrInfo},
     ports::{self, Port},
-    speaker, startup,
+    speaker,
+    startup::{self, ExitCode},
     sysinfo::SystemInfo,
     vga::{
         self,
@@ -49,47 +50,63 @@ static SHIFT: AtomicU8 = AtomicU8::new(0);
 static SYSRQ: AtomicBool = AtomicBool::new(false);
 
 /// Disables mouse, runs some tests, sets config, then sets the scancode and numlock LEDs.
-pub fn init() -> Result<(), KbdInitError> {
+/// # Safety
+/// Ports `0x60` & `0x64` must not be used anywhere else.
+pub unsafe fn init() -> ExitCode<KbdInitError> {
     super::sti();
 
-    if !startup::pic_init() {
-        do yeet KbdInitError::new("PIC is not initialised!!!");
+    if !startup::PIC_INIT.load() {
+        return ExitCode::Error(KbdInitError::new("The PIC ins't init!"));
     }
 
     // Safety: This is the only use of ports 0x60 & 0x64, excluding unsafe functions
     let mut controller = unsafe { Controller::new() };
 
+    macro_rules! parse_err {
+        ($msg: expr, $res: expr) => {
+            match $res {
+                Err(e) => {
+                    return ExitCode::Error(KbdInitError {
+                        msg: $msg,
+                        kbd_err: Some(e.into()),
+                    })
+                }
+                Ok(_) => (),
+            }
+        };
+    }
+
     // Disable devices
-    KbdInitError::map("Disable keyboard", controller.disable_keyboard())?;
-    KbdInitError::map("Disable mouse", controller.disable_mouse())?;
+    parse_err!("Disable keyboard", controller.disable_keyboard());
+    parse_err!("Disable mouse", controller.disable_mouse());
 
     // It doesn't matter if it's an err since we're just flushing the buffer
     _ = controller.read_data();
 
     // Tests
-    KbdInitError::map("Controller test", controller.test_controller())?;
-    KbdInitError::map("Keyboard test", controller.test_keyboard())?;
+    parse_err!("Controller test", controller.test_controller());
+    parse_err!("Keyboard test", controller.test_keyboard());
 
     // Config
     let mut cfg = ControllerConfigFlags::all();
     cfg.set(ControllerConfigFlags::DISABLE_KEYBOARD, false); // enable kbd
     cfg.set(ControllerConfigFlags::ENABLE_MOUSE_INTERRUPT, false); // since we don't use the mouse
     cfg.set(ControllerConfigFlags::ENABLE_TRANSLATE, false); // so scancode set 2 is actually scancode set 2
-    KbdInitError::map("Set config", controller.write_config(cfg))?;
+    parse_err!("Set config", controller.write_config(cfg));
 
-    // Re-enable keyboard
+    // Echo!!
     let mut kbd = controller.keyboard();
-    KbdInitError::map("Keyboard echo", kbd.echo())?;
+    parse_err!("Keyboard Echo", kbd.echo());
 
     // Scancode set 2 & Num Lock LEDs
-    KbdInitError::map("Set scancode", kbd.set_scancode_set(2))?;
-    KbdInitError::map("Set LEDS", kbd.set_leds(KeyboardLedFlags::NUM_LOCK))?;
-    KbdInitError::map("Reset keyboard", kbd.reset_and_self_test())?;
+    parse_err!("Set scancode", kbd.set_scancode_set(2));
+    parse_err!("Set LEDS", kbd.set_leds(KeyboardLedFlags::NUM_LOCK));
+    parse_err!("Reset keyboard", kbd.reset_and_self_test());
 
     // Safety: We just initialised it above
     unsafe { startup::KBD_INIT.store(true) }
 
-    Ok(())
+    ExitCode::Ok
 }
 
 /// Error returned from `init`.
@@ -102,20 +119,6 @@ impl KbdInitError {
     /// Returns a new error without the `kbd_err` field.
     fn new(msg: &'static str) -> Self {
         KbdInitError { msg, kbd_err: None }
-    }
-
-    /// Maps a `Result<T, E>` to a `Result<(), Self>`
-    fn map<T, E>(msg: &'static str, err: Result<T, E>) -> Result<(), Self>
-    where
-        E: Into<KeyboardError>,
-    {
-        match err {
-            Err(err) => Err(KbdInitError {
-                msg,
-                kbd_err: Some(err.into()),
-            }),
-            Ok(_) => Ok(()),
-        }
     }
 }
 
@@ -165,7 +168,7 @@ pub fn wait_for_response(enter_eq_true: bool) -> bool {
 /// Reads from port 0x60 for it's response.
 #[unsafe(no_mangle)]
 unsafe fn kbd_handler() {
-    if !startup::kbd_init() {
+    if !startup::KBD_INIT.load() {
         return;
     }
 

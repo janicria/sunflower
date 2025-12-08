@@ -3,16 +3,25 @@ use super::{
     INode, MAGIC,
 };
 use crate::{
+    exit_on_err,
     floppy::{
         FloppyError,
         disk::{self, CYLINDERS, HEADS, SECTOR_SIZE, SECTORS},
     },
     fs::INODES_PER_BLOCK,
-    interrupts, startup, time,
+    interrupts,
+    startup::{self, ExitCode},
+    time,
 };
-use core::mem;
+use core::{
+    mem,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use libutil::{AsBytes, ExclusiveMap};
 use thiserror::Error;
+
+/// Has floppyfs been initialised yet?
+pub static FLOPPYFS_INIT: AtomicBool = AtomicBool::new(false);
 
 /// The last sector in the floppy drive
 const END_SECTOR: u16 = CYLINDERS * HEADS * SECTORS;
@@ -68,19 +77,19 @@ fn reformat_drive() -> Result<(), InitError> {
 
 /// Initialises and mounts the floppy filesystem.
 #[allow(unused)]
-pub fn init_floppyfs() -> Result<(), InitError> {
+pub fn init_floppyfs() -> ExitCode<InitError> {
     if !startup::FLOPPY_INIT.load() {
-        return Err(InitError::NoFloppyDriver);
+        return ExitCode::Error(InitError::NoFloppyDriver);
     }
 
     // Read the filesystem's header
     let mut buf = [0; size_of::<FilesystemHeader>()];
-    disk::read(0, &mut buf)?;
+    exit_on_err!(disk::read(0, &mut buf));
     let fsheader: FilesystemHeader = FilesystemHeader::from_raw(buf);
 
     if fsheader.magic != MAGIC {
         dbg_info!("Bad filesystem magic found");
-        reformat_drive()?
+        exit_on_err!(reformat_drive())
     }
 
     // Check if the filesystem is a newer version
@@ -104,8 +113,8 @@ pub fn init_floppyfs() -> Result<(), InitError> {
     let mut buf = [0; size_of::<INode>() * INODES];
     let cyl0 = size_of::<INode>() * 17 * INODES_PER_BLOCK;
     let cyl1 = cyl0 + size_of::<INode>() * 18 * INODES_PER_BLOCK;
-    disk::read(INODE_START, &mut buf[..cyl0])?; // read first cyl
-    disk::read(INODE_START + 17, &mut buf[cyl0..cyl1])?; // read second cyl
+    exit_on_err!(disk::read(INODE_START, &mut buf[..cyl0])); // read first cyl
+    exit_on_err!(disk::read(INODE_START + 17, &mut buf[cyl0..cyl1])); // read second cyl
     // Safety: All bit patterns of inode are safe
     let nods = unsafe { mem::transmute::<[u8; size_of::<INode>() * INODES], [INode; INODES]>(buf) };
 
@@ -113,7 +122,7 @@ pub fn init_floppyfs() -> Result<(), InitError> {
     for (idx, exmap) in INODE_TABLE.iter().enumerate() {
         let inode = nods[idx].clone();
         let (mode, meta) = (inode.mode, inode.meta.clone());
-        exmap.map(|v| *v = inode).ok_or(InitError::ExmapFailure)?;
+        exit_on_err!(exmap.map(|v| *v = inode).ok_or(InitError::ExmapFailure));
 
         if mode.contains(FileMode::ACTIVE) {
             active += 1;
@@ -121,14 +130,15 @@ pub fn init_floppyfs() -> Result<(), InitError> {
             // Update free block bitmap
             for ptrs in meta.iter() {
                 for ptr in ptrs.decode().into_iter().filter(|p| *p != 0) {
-                    alloc_bmp(ptr).ok_or(InitError::ExmapFailure)?;
+                    exit_on_err!(alloc_bmp(ptr).ok_or(InitError::ExmapFailure));
                 }
             }
         }
     }
+    
     dbg_info!("Read inode table, active inodes: {active}");
-
-    Ok(())
+    FLOPPYFS_INIT.store(true, Ordering::Relaxed);
+    ExitCode::Ok
 }
 
 /// An error created when trying to initialise the floppy filesystem.

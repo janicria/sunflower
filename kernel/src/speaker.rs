@@ -15,7 +15,7 @@ pub fn play(freq: u32) {
     // todo: explain why the command is 0b10110110
     static COMMAND: u8 = 0b10110110;
 
-    if !startup::pit_init() {
+    if !startup::PIT_INIT.load() {
         warn!("attempted playing sounds with an uninit PIT!");
         return;
     }
@@ -59,7 +59,7 @@ pub fn play_special(freq: u32, millis: u64, repeat: bool, no_ints: bool) {
         (time::wait as fn(u64), millis / 10)
     };
 
-    if !startup::pit_init() {
+    if !startup::PIT_INIT.load() {
         warn!("attempted playing special with an uninit PIT!");
         return;
     }

@@ -103,7 +103,7 @@ fn run(args: &ArgMatches) {
     // Prevent using multiple audio options at once
     if (pipe & pulse) | (pipe & nosound) | (pulse & nosound) {
         println!(
-            "error: options `--pipewire`, `--pulseaudio` and `--nosound` cannot be used together"
+            "error: options `--pipewire`, `--pulseaudio` and `--nosound` cannot be used together in any combination"
         );
         process::exit(4)
     }
@@ -113,6 +113,9 @@ fn run(args: &ArgMatches) {
     } else if pulse {
         "pa"
     } else {
+        if !nosound {
+            println!("warning: no audio flag specified, assuming --nosound")
+        }
         "none"
     };
 

@@ -1,6 +1,8 @@
 use core::fmt::Display;
 use libutil::UnsafeFlag;
 
+use crate::vga::print::{self, Color};
+
 // Whether or not the GDT has been initialised yet
 /// # Flag
 /// Falsely setting this flag to true causes the TSS keyboard assume it's ready to be initialised.
@@ -27,59 +29,71 @@ pub static KBD_INIT: UnsafeFlag = UnsafeFlag::new(false);
 /// Falsely setting this flag to true causes services in `floppy::disk` to assume that they've been initialised.
 pub static FLOPPY_INIT: UnsafeFlag = UnsafeFlag::new(false);
 
-/// Returns true if the PIC has been initialised.
-pub fn pic_init() -> bool {
-    PIC_INIT.load()
+/// Has the Real Time Clock IRQ been initialised yet?
+/// # Flag
+/// Falsely setting this flag in startup causes [`wait_for_rtc_sync`](crate::time::wait_for_rtc_sync) to loop forever.
+/// This isn't really unsafe, but it is very scary.
+pub static RTC_IRQ_INIT: UnsafeFlag = UnsafeFlag::new(false);
+
+/// Returns [`ExitCode`] `code` if `res` is `Err`.
+#[macro_export]
+macro_rules! exit_on_err {
+    ($res: expr, $code: ident) => {
+        match $res {
+            Ok(val) => val,
+            Err(e) => return $crate::startup::ExitCode::$code(e.into()),
+        }
+    };
+    ($res: expr) => {
+        $crate::exit_on_err!($res, Error)
+    };
 }
 
-/// Returns true if the PIT has been initialised.
-pub fn pit_init() -> bool {
-    PIT_INIT.load()
-}
-
-/// Returns true if the PS/2 keyboard has been initialised.
-pub fn kbd_init() -> bool {
-    KBD_INIT.load()
-}
-
-/// Returns true if the GDT keyboard has been initialised.
-pub fn gdt_init() -> bool {
-    GDT_INIT.load()
-}
-
-/// Runs `task` as a startup task, printing `OK` or `ERR` depending on the result.
-///
-/// The task must **NEVER** assume interrupts to either be set or cleared when ran,
-/// and must not rely on any kernel services which depend on their respective INIT static being set.
+/// Runs  startup task `task`.
 ///
 /// Aborts testing if tests are being ran and the task fails.
-pub fn run<E>(name: &str, task: fn() -> Result<(), E>)
+///
+/// # Safety
+/// The task must be safe to run, only be ran once, and be aware that
+/// the kernel can be in any state when first ran (such as having interrupts clear).
+pub unsafe fn run<E>(name: &str, task: unsafe fn() -> ExitCode<E>)
 where
     E: Display,
 {
-    match task() {
-        Ok(()) => print_ok(name),
-        Err(s) => print_err(name, s),
+    // Safety: The caller must ensure that the task is safe to run
+    match unsafe { task() } {
+        ExitCode::Infallible => print_box(Color::Cyan, "INF", name),
+        ExitCode::Ok => print_box(Color::Lime, "OK!", name),
+        ExitCode::Error(e) => {
+            print_box(Color::LightRed, "ERR", name);
+            println!(fg = LightGrey, "error: {e}");
+        }
+        ExitCode::Stop(e) => {
+            print_box(Color::Red, "STP", name);
+            println!("startup task encountered an unrecoverable error: {e}");
+            panic!("startup task {name} returned STOP");
+        }
+    };
+
+    fn print_box(fg: Color, code: &str, name: &str) {
+        print::write_char(b'[', Color::White, Color::Black);
+        print::_print(format_args!(" {code} "), fg, Color::Black);
+        print::write_char(b']', Color::White, Color::Black);
+        println!(fg = Grey, " {name}");
     }
 }
 
-/// Prints `[ OK! ] <task>`.
-pub fn print_ok(task: &str) {
-    print!("[");
-    print!(fg = Lime, " OK");
-    println!(" ] {task}");
-}
+/// An exit code returned from a startup task.
+pub enum ExitCode<E> {
+    /// The task can't fail.
+    Infallible,
 
-/// Prints `[ ERR ] <task>: <err>`.
-/// Fails the 'test' if tests are being ran.
-fn print_err<E>(task: &str, err: E)
-where
-    E: Display,
-{
-    print!("[");
-    print!(fg = LightRed, " ERR");
-    println!(" ] {task}: {err}");
+    /// The task passed, enable the group flags.
+    Ok,
 
-    #[cfg(test)]
-    panic!("startup task {task} failed")
+    /// The task encountered an error, disable the group flags.
+    Error(E),
+
+    /// Stop execution of the kernel and hang.
+    Stop(E),
 }

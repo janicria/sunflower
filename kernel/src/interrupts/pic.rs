@@ -1,7 +1,9 @@
+use core::convert::Infallible;
+
 use super::IRQ_START;
 use crate::{
     ports::{Port, writeb},
-    startup,
+    startup::{self, ExitCode},
 };
 
 /// Offset to the secondary PIC from the first.
@@ -28,9 +30,11 @@ pub extern "C" fn eoi(irq: u8) {
     }
 }
 
-/// Initialises the main and secondary PICs.
-/// [`Reference`](https://wiki.osdev.org/8259_PIC)
-pub fn init() {
+/// Initialises the main and secondary [PICs](https://wiki.osdev.org/8259_PIC)
+///
+/// # Safety
+/// Only run this ONCE at startup time.
+pub unsafe fn init() -> ExitCode<Infallible> {
     /// Initialisation & ICW4 bits set respectively
     static INIT_CMD: u8 = 0b10001;
 
@@ -40,6 +44,7 @@ pub fn init() {
     /// The IRQ used to forward ints from the secondary to main PICs.
     static FORWARD_IRQ: u8 = 2;
 
+    // Safety: Using valid commands and caller must ensure that this function is only called once
     unsafe {
         // Send the init command
         writeb(Port::MainPicCmd, INIT_CMD);
@@ -62,7 +67,10 @@ pub fn init() {
         // Unmask both of the PICs to allow interrupts through
         writeb(Port::MainPicData, 0);
         writeb(Port::SecondaryPicData, 0);
-
-        startup::PIC_INIT.store(true);
     };
+
+    // Safety: Just initialised it above
+    unsafe { startup::PIC_INIT.store(true) }
+    
+    ExitCode::Infallible
 }
