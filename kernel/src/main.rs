@@ -79,11 +79,15 @@ pub unsafe extern "C" fn kmain() -> ! {
     tests();
 
     if cfg!(feature = "debug_info") {
-        let ptr = fs::alloc_inode(8, unsafe { core::mem::zeroed() }, 1).unwrap();
+        let nod = libfs::INode::zeroed();
+        let ptr = fs::alloc_inode(nod, 1, 2 * 18 * 80).unwrap();
         let mut buf = [0; 512];
         let c = fs::read_inode(ptr, &mut buf).unwrap();
         println!("read {c} from {ptr}");
     }
+
+    let buf = [42; 512];
+    floppy::disk::write(8, &buf).unwrap();
 
     vga::draw_topbar("Sunflower");
     println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");

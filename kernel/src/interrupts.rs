@@ -1,9 +1,9 @@
 use crate::{exit_on_err, startup::ExitCode, time, vga::cursor};
-use core::{arch::asm, fmt::Display, hint};
+use core::{arch::asm, fmt::Display};
 use idt::InterruptDescriptor;
+pub use keyboard::init as init_kbd;
 use libutil::{InitLater, LoadRegisterError, TableDescriptor};
 pub use pic::init as init_pic;
-pub use keyboard::init as init_kbd;
 
 /// IDT and exception handlers.
 mod idt;
@@ -79,8 +79,11 @@ pub fn idt_register() -> TableDescriptor<Idt> {
 /// Repeatedly loops polling the keyboard.
 pub fn kbd_poll_loop() -> ! {
     loop {
-        hint::spin_loop(); // pause instruction
         keyboard::poll_keyboard();
+
+        // Safety: Repeatedly busy waiting for a new key to be pressed is stupidly inefficient,
+        // since the PIT fires an interrupt every ms anyway, why not just hlt after each poll?
+        unsafe { asm!("hlt") }
 
         // Update the cursor every 100 ms
         if time::get_time().is_multiple_of(10) {

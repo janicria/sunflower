@@ -155,11 +155,6 @@ pub fn wait_no_ints(ticks: u64) {
     set_waiting_char(false);
 }
 
-/// Returns if a timer going for at least `timeout` ticks starting at `start` is still running.
-pub fn timer(start: u64, timeout: u64) -> bool {
-    start + timeout > get_time()
-}
-
 /// The century the kernel was complied.
 /// This value is only updated when the kernel is built so isn't too precise.
 const CENTURY: u16 = crate::env_as_int!("SFK_TIME_CENTURY", u16);

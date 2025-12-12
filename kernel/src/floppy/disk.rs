@@ -271,7 +271,7 @@ unsafe fn read_write_status() -> Result<(), FloppyError> {
 /// Reads from the floppy drive starting at sector `ptr` into `buf`.
 ///
 /// Fails if the length of `buf` isn't a multiple of 512.
-pub fn read(ptr: u16, buf: &mut [u8]) -> Result<(), FloppyError> {
+pub fn read(ptr: u64, buf: &mut [u8]) -> Result<(), FloppyError> {
     if buf.is_empty() {
         warn!("useless call to disk::read with an empty buffer");
         return Ok(());
@@ -288,6 +288,7 @@ pub fn read(ptr: u16, buf: &mut [u8]) -> Result<(), FloppyError> {
     // Loop attempting to read the data for a while
     let sects = buf.len() / SECTOR_SIZE;
     let mut err = DiskError::IoTimeout.into();
+    let ptr = ptr as u16;
     'read: for _ in 0..DISK_RETRIES {
         dbg_info!(
             "reading {sects} sectors ({}b) at sect {ptr} from floppy",
@@ -335,7 +336,7 @@ pub fn read(ptr: u16, buf: &mut [u8]) -> Result<(), FloppyError> {
 /// Writes `buf` into the sector at offset `ptr`.
 ///
 /// Fails if the length of `buf` isn't a multiple of 512.
-pub fn write(ptr: u16, buf: &[u8]) -> Result<(), FloppyError> {
+pub fn write(ptr: u64, buf: &[u8]) -> Result<(), FloppyError> {
     if buf.is_empty() {
         warn!("useless call to disk::write with an empty buffer");
         return Ok(());
@@ -352,6 +353,7 @@ pub fn write(ptr: u16, buf: &[u8]) -> Result<(), FloppyError> {
     // Loop attempting to write the data for a while
     let sects = buf.len() / SECTOR_SIZE;
     let mut err = DiskError::IoTimeout.into();
+    let ptr = ptr as u16;
     'write: for _ in 0..DISK_RETRIES {
         dbg_info!(
             "writing {sects} sectors ({}b) at sect {ptr} to floppy",

@@ -1,7 +1,7 @@
 [package]
 name = "sunflower"
 description = "A small kernel written in Rust"
-version = "0.0.0" # See the VERSION file for actual version
+version = "0.0.0"                                    # See the VERSION file for actual version
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/janicria/sunflower"
@@ -14,6 +14,7 @@ ps2 = "0.2.0"
 thiserror = { version = "2.0.17", default-features = false }
 uart_16550 = "0.4.0"
 libutil = { path = "../libutil" }
+libfs = { path = "../libfs" }
 
 [build-dependencies]
 chrono = "0.4.42"

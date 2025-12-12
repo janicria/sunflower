@@ -26,7 +26,7 @@ pub struct Kernel {
 #[derive(Deserialize)]
 pub struct FloppyFs {
     day: u16,
-    year: u8,
+    year: u16,
 }
 
 /// Parses the VERSION file ands sends it to sunflower through environment variables.

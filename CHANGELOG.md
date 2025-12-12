@@ -1,5 +1,14 @@
 # Sunflower changelog
 
+# Development 13
+##### libfs 12/12/25
+
+- Finally hlted during the keyboard poll loop, saving a LOT of wasted cpu resources
+- Moved most of `fs.rs` & `floppyfs.rs` into `libfs` & updated `seeder` to check & test it
+- Cropped a screenshot which needed cropping
+- Made the year field in `VERSION` the current year because that just makes more sense
+- Added a new kernel test for continuing after breakpoints and invalid opcodes
+
 # Development 12
 ##### Misc improvements 8/12/25
 

@@ -153,7 +153,7 @@ fn run(args: &ArgMatches) {
 /// Runs command `cmd` in `kernel/`, `libutil/` and `seeder`, warning on any any arguments.
 fn run_alldirs(cmd: &RunCommand, args: &ArgMatches) {
     /// The dirs which `cmd` will be ran in
-    static DIRS: [&str; 3] = ["seeder", "libutil", "kernel"];
+    static DIRS: [&str; 4] = ["seeder", "libutil", "libfs", "kernel"];
 
     let str = cmd.as_str();
     warn_unneeded_arg(str, "debug", args);

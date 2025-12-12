@@ -71,11 +71,15 @@ macro_rules! cont_wrapper {
 
 /// Continues execution after an error occurs.
 #[unsafe(no_mangle)]
-fn cont(frame: IntStackFrame) {
+fn cont(_frame: IntStackFrame) {
     rbod::SMALL_ERRS.fetch_add(1, Ordering::Relaxed);
-    print!(fg = LightRed, "An unexpected error occurred: ");
-    let err = unsafe { ERR_CODE };
-    println!("{err:?} at {:x}", frame.ip);
+    #[cfg(not(test))]
+    {
+        // some tests deliberately trigger cont exceptions
+        print!(fg = LightRed, "An unexpected error occurred: ");
+        let err = unsafe { ERR_CODE };
+        println!("{err:?} at {:x}", _frame.ip);
+    }
 }
 
 /// Calls rbod, never returns.
@@ -85,7 +89,7 @@ macro_rules! rbod_wrapper {
         extern "C" fn wrapper() -> ! {
             naked_asm!(
                 concat!("mov qword ptr ERR_CODE, ", stringify!($err)), // err code
-                "mov rdi, rsp",    // store stack frame in first arg
+                "mov rdi, rsp",   // store stack frame in first arg
                 "jmp setup_rbod", // never returns so need for iretq
             )
         }
@@ -415,5 +419,12 @@ mod tests {
         assert_eq!(idt[IRQ_START + 7].ptr(),  dummy_handler   as *const () as Handler);
         assert_eq!(idt[IRQ_START + 8].ptr(),  rtc_handler     as *const () as Handler);
         assert_eq!(idt[IRQ_START + 15].ptr(), dummy_handler   as *const () as Handler);
+    }
+
+    /// Tests that [`cont_wrapper!`] handlers actually continue
+    #[test_case]
+    fn cont_handlers_continue() {
+        // int3 = breakpoint, ud2 = UD
+        unsafe { core::arch::asm!("int3", "ud2") }
     }
 }

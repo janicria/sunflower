@@ -1,0 +1,12 @@
+[package]
+name = "libfs"
+description = "A library for creating, reading and modifying sunflower readable filesystems."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/janicria/sunflower"
+
+[dependencies]
+bitflags = "2.10.0"
+libutil = { path = "../libutil" }
+thiserror = { version = "2.0.17", default-features = false }
