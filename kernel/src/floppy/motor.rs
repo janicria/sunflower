@@ -1,13 +1,15 @@
+//! Allows enabling or disabling the floppy's motor.
+
 use super::{DRIVE_ONE, FloppyPort};
 use crate::{ports, time};
 use core::sync::atomic::{AtomicU8, AtomicU16, Ordering};
 use libutil::InitError;
 
-/// The current state of the floppy's motor.
-static MOTOR_STATE: AtomicU8 = AtomicU8::new(MOTOR_OFF);
-
 /// How long is left before the floppy's motor is disabled.
 static MOTOR_TIME_LEFT: AtomicU16 = AtomicU16::new(0);
+
+/// The current state of the floppy's motor. See below consts for valid states.
+static MOTOR_STATE: AtomicU8 = AtomicU8::new(MOTOR_OFF);
 
 /// The floppy's motor is on.
 const MOTOR_ON: u8 = 0;

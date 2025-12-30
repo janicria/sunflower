@@ -1,5 +1,13 @@
 # Sunflower changelog
 
+## Development 14
+##### floppy & libfs de-spaghettification 30/12/25
+
+- Overhauled libfs to make it actually usable now
+- Moved the `fs::floppyfs` module in the kernel to `floppy`
+- Moved the floppy reset functions to a new reset module
+- Reorganized a lot of the floppy module
+
 # Development 13
 ##### libfs 12/12/25
 

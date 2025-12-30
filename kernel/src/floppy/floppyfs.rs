@@ -1,14 +1,17 @@
+//! Handles the floppyfs filesystem
+
 use crate::{
     exit_on_err,
-    floppy::{FloppyError, disk},
+    floppy::{CYL_BOUNDARY, FloppyError, SECTOR_SIZE, SECTORS, disk},
     interrupts,
     startup::{self, ExitCode},
 };
 use core::sync::atomic::{AtomicBool, Ordering};
 use libfs::{
-    FilesystemFeatures, FilesystemHeader, INODES, INode, MAGIC,
-    init::{self, ReadTableError},
-    table::{self, AllocINodeError, InodeBitmap, InodeIOError, InodeTable},
+    BlockPtr, INODES, INode, MAGIC,
+    header::{FilesystemHeader, FsFeatures},
+    init::{self, ReadTblError},
+    table::{BlockBitmap, InodeTable},
 };
 use libutil::ExclusiveMap;
 use thiserror::Error;
@@ -30,25 +33,45 @@ const GOOD_FS_HEADER: FilesystemHeader = FilesystemHeader::new(
     ],
     DAY,
     YEAR,
-    [0; 64], // mount at root dir
     0,
-    FilesystemFeatures::FLOPPY,
+    FsFeatures::FLOPPY,
 );
 
-libfs::inode_statics!();
+libfs::table_statics!();
 
-/// See [`alloc_inode`](libfs::table::alloc_inode).
-pub fn alloc_inode(
-    nod: INode,
-    blocks: u8,
-    fs_size: u64,
-) -> Result<u64, AllocINodeError<FloppyError>> {
-    table::alloc_inode(nod, blocks, fs_size, disk::write, &INODE_BMP, &INODE_TBL)
+/// A wrapper over [`disk::write`], which allows writing over cylinder boundaries.
+pub fn write(block: u64, buf: &[u8]) -> Result<(), FloppyError> {
+    // Since block can start anywhere relative to a cyl boundary,
+    // we have to make sure to use a smaller buf for the first write
+    let fst_cyl_distance = SECTORS as usize - block as usize;
+    let fst_cyl_boundary = (fst_cyl_distance * SECTOR_SIZE).min(buf.len());
+    disk::write(block, &buf[..fst_cyl_boundary])?;
+
+    let block = block + fst_cyl_distance as u64;
+    for (idx, buf) in buf[fst_cyl_boundary..].chunks(CYL_BOUNDARY).enumerate() {
+        let block = block + (idx * CYL_BOUNDARY) as u64;
+        disk::write(block, buf)?
+    }
+
+    Ok(())
 }
 
-/// See [`read_inode`](libfs::table::read_inode).
-pub fn read_inode(ptr: u64, buf: &mut [u8]) -> Result<u16, InodeIOError<FloppyError>> {
-    table::read_inode(ptr, buf, disk::read, &INODE_TBL)
+/// A wrapper over [`disk::read`], which allows reading over cylinder boundaries.
+pub fn read(block: u64, buf: &mut [u8]) -> Result<(), FloppyError> {
+    // Since block can start anywhere relative to a cyl boundary,
+    // we have to make sure to use a smaller buf for the first read
+    let fst_cyl_distance = SECTORS as usize - block as usize;
+    let fst_cyl_boundary = (fst_cyl_distance * SECTOR_SIZE).min(buf.len());
+    disk::read(block, &mut buf[..fst_cyl_boundary])?;
+
+
+    let block = block + fst_cyl_distance as u64;
+    for (idx, buf) in buf[fst_cyl_boundary..].chunks_mut(CYL_BOUNDARY).enumerate() {
+        let block = block + (idx as u64 * SECTORS as u64);
+        disk::read(block, buf)?
+    }
+
+    Ok(())
 }
 
 /// Initialises and mounts the floppy filesystem.
@@ -69,7 +92,7 @@ pub fn init_floppyfs() -> ExitCode<InitError> {
             return ExitCode::Error(InitError::CorruptDrive);
         }
         fsheader = GOOD_FS_HEADER;
-        exit_on_err!(init::reformat_drive(&GOOD_FS_HEADER, disk::write))
+        exit_on_err!(init::reformat_drive(&GOOD_FS_HEADER, write))
     }
 
     // Check if the filesystem is a newer version
@@ -78,14 +101,14 @@ pub fn init_floppyfs() -> ExitCode<InitError> {
         dbg_info!("Filesystem has newer release than kernel, some features may not be supported")
     }
 
-    let feats = fsheader.features;
     dbg_info!(
-        "Found floppy filesystem: {}, released {fs_release}\nFilesystem features: {feats}",
+        "Found floppy filesystem: {}, released {fs_release}\nFilesystem features: {}",
         str::from_utf8(&fsheader.name).unwrap_or("filesystem contains bad name"),
+        fsheader.features()
     );
 
-    let _active = exit_on_err!(init::read_table(feats, disk::read, &INODE_BMP, &INODE_TBL));
-    dbg_info!("Read inode table, active inodes: {_active}");
+    let (_nods, _blocks) = exit_on_err!(init::read_table(&INODE_TBL, &BLOCK_BMP, read));
+    dbg_info!("Read inode table, active inodes: {_nods}, used blocks: {_blocks}");
     FLOPPYFS_INIT.store(true, Ordering::Relaxed);
     ExitCode::Ok
 }
@@ -103,5 +126,5 @@ pub enum InitError {
     CorruptDrive,
 
     #[error("read table error: {0}")]
-    TableError(#[from] ReadTableError<FloppyError>),
+    TableError(#[from] ReadTblError<FloppyError>),
 }

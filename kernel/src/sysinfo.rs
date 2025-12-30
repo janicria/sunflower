@@ -1,6 +1,5 @@
 use crate::{
-    floppy::{self, disk},
-    fs,
+    floppy::{self, disk, floppyfs},
     gdt::{self, Gdt},
     interrupts::{self, Idt},
     startup::{self, ExitCode},
@@ -150,7 +149,7 @@ impl SystemInfo {
             floppy_space: floppy::FLOPPY_SPACE.read(),
             floppy_drive: floppy::DRIVE_ONE.load() as u8,
             fdc_init: startup::FLOPPY_INIT.load(),
-            floppyfs_init: fs::FLOPPYFS_INIT.load(Ordering::Relaxed),
+            floppyfs_init: floppyfs::FLOPPYFS_INIT.load(Ordering::Relaxed),
             floppy_read_bytes: disk::DISK_READ_BYTES.load(Ordering::Relaxed),
             floppy_written_bytes: disk::DISK_WRITTEN_BYTES.load(Ordering::Relaxed),
 

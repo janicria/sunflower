@@ -1,225 +1,207 @@
 //! Handles the inode table.
-//! Expects [`InodeTable`] & [`InodeBitmap`] statics, which can be created through the [`inode_statics`] macro.
+//! Most functions operate on [`InodeTable`] & [`BlockBitmap`] values, which can be created as statics via the [`table_statics!`] macro.
 
-use super::{BLOCK_SIZE, BLOCK_START, DualBlockPtr, INODE_START, INODES, INode, Read, Write};
-use libutil::ExclusiveMap;
+use crate::{BlockPtr, INODE_START, INODES, INode, InodePtr, Write};
+use libutil::{AsBytes, ExclusiveMap};
 use thiserror::Error;
 
 /// Memory cached inode table written to disk on write.
 pub type InodeTable = [ExclusiveMap<INode>; INODES];
 
 /// Bitmap of freely available blocks, where a zero indicates that a block is available.
-pub type InodeBitmap = [ExclusiveMap<u8>; INODES * 8];
+pub type BlockBitmap = [ExclusiveMap<u128>; BlockPtr::MAX_VAL as usize / U128_BITS];
 
-/// Checking if inodes and blocks are available can spuriously fail due to the use of exmaps.
-const EXMAP_RETRIES: u8 = 8;
+/// The number of bits in a `u128`.
+const U128_BITS: usize = u128::BITS as usize;
 
-/// Creates the required [`InodeTable`] & [`InodeBitmap`] statics.
+/// Creates the required [`InodeTable`] & [`BlockBitmap`] statics.
+/// Note: These statics take up just over 20 KB in memory.
 #[macro_export]
-macro_rules! inode_statics {
+macro_rules! table_statics {
     () => {
         static INODE_TBL: InodeTable = [const { ExclusiveMap::new(INode::zeroed()) }; INODES];
-        static INODE_BMP: InodeBitmap = [const { ExclusiveMap::new(0) }; INODES * 8];
+        static BLOCK_BMP: BlockBitmap =
+            [const { ExclusiveMap::new(0) }; BlockPtr::MAX_VAL as usize / u128::BITS as usize];
     };
 }
 
-/// Marks the `ptr`th block in the [`InodeBitmap`] as used, then returns it's previous value.
-///
-/// Returns `None` if the bitmap can't be accessed.
-pub fn alloc_bmp(ptr: u64, bmp: &InodeBitmap) -> Option<bool> {
-    let byte = (ptr as usize) / 8;
-    let bit = 7 - (ptr % 8);
+/// Tries to mark the block `block` in the [`BlockBitmap`] as used if it's available.
+pub fn alloc_bmp(block: &BlockPtr, bmp: &BlockBitmap) -> Result<(), AllocBmpError> {
+    let ptr = block.get().ok_or(AllocBmpError::NullPtr)? as usize;
+    let idx = ptr / U128_BITS;
+    let bit = 1u128 << (ptr % U128_BITS);
 
-    bmp[byte].map(|i| {
-        let prev = (*i >> bit) & 1 == 1; // is bit set?
-        *i |= 1 << bit; // set bit
-        prev
-    })
+    match bmp[idx].map(|i| {
+        // Check if the bit is already set
+        if *i & bit != 0 {
+            Err(AllocBmpError::AlreadyInUse(block.clone()))
+        } else {
+            *i |= bit; // set bit
+            Ok(())
+        }
+    }) {
+        Some(res) => res,
+        None => Err(AllocBmpError::ExmapInUse(block.clone())),
+    }
 }
 
-/// Tries to allocate inode `nod` in the first available slot, not passing block `fs_size`, in the table with `blocks` blocks.
-/// Always sets the `links` field on the `INode` to 1.
-/// 
-/// Returns a pointer to the newly allocated inode it on success.
-pub fn alloc_inode<E>(
-    nod: INode,
-    blocks: u8,
-    fs_size: u64,
-    write: Write<E>,
-    bmp: &InodeBitmap,
-    tbl: &InodeTable,
-) -> Result<u64, AllocINodeError<E>> {
-    let blocks = blocks.min(64) as usize; // inodes can only store up to 64 ptrs
-    let mut err = AllocINodeError::OutOfInodes;
+/// The error returned from [`alloc_bmp`].
+#[derive(Error, Debug, PartialEq)]
+pub enum AllocBmpError {
+    #[error("attempted allocating a null block ptr")]
+    NullPtr,
 
-    for _ in 0..EXMAP_RETRIES {
-        let mut alloc_blks = 0; // the number of blocks we've allocated
-        let mut use_ptr2 = false; // do we use the first or second ptr for the next block?
-        let mut block_ptrs = DualBlockPtr::empty_arr();
+    #[error("{0} is already allocated")]
+    AlreadyInUse(BlockPtr),
 
-        // Find those blocks!
-        for ptr in BLOCK_START..fs_size {
-            if alloc_blks == blocks {
-                break; // we've allocated the right amount of blocks!
-            }
+    #[error("{0}'s exmap is being used somewhere else")]
+    ExmapInUse(BlockPtr),
+}
 
-            if let Some(used) = alloc_bmp(ptr, bmp)
-                && !used
-            {
-                // We found an available block!
-                let mut ptrs = block_ptrs[alloc_blks].decode();
-                ptrs[use_ptr2 as usize] = ptr as u16;
-                block_ptrs[alloc_blks] = DualBlockPtr::encode(ptrs);
-
-                use_ptr2 = !use_ptr2;
-                alloc_blks += 1;
-            }
-        }
-
-        // Check if we found enough blocks to allocate
-        if blocks != 0 && block_ptrs[blocks - 1].decode()[0] == 0 {
-            err = AllocINodeError::OutOfBlocks;
-            break;
-        }
-
-        // Try find an inode
-        err = AllocINodeError::OutOfInodes;
-        for (idx, exmap) in tbl.iter().enumerate() {
-            let mut inode_ptr = None;
-            if let Some(()) = exmap.map(|inode| {
-                if inode.links == 0 {
-                    // We found an available inode!
-                    inode.mode = nod.mode;
-                    inode.links = 1;
-                    inode.size = nod.size;
-                    inode.meta = block_ptrs.clone(); // annoying clone because compiler sucks
-                    inode_ptr = Some(idx as u64);
-                }
-            }) && let Some(ptr) = inode_ptr
-            {
-                write_inode(ptr, write, tbl)?;
-                return Ok(ptr);
-            };
+/// Allocates the next available block in the block bitmap,
+/// returning a null ptr if the bitmap is full.
+pub fn alloc_next_bmp(bmp: &BlockBitmap) -> BlockPtr {
+    for ptr in 1..BlockPtr::MAX_VAL {
+        let blk = BlockPtr::new(ptr);
+        if alloc_bmp(&blk, bmp).is_ok() {
+            return blk;
         }
     }
 
-    Err(err)
+    BlockPtr::null()
 }
 
-/// The error returned when trying to initialise an inode.
+/// Tries to allocate inode `nod` in `tbl`, returning a pointer to it.
+pub fn alloc_inode<E>(
+    nod: &INode,
+    tbl: &InodeTable,
+    write: Write<E>,
+) -> Result<InodePtr, AllocInodeError<E>> {
+    for (idx, exmap) in tbl.iter().enumerate() {
+        if let Some(alloc) = exmap.map(|n| {
+            let alloc = n.is_available();
+            if alloc {
+                *n = nod.clone() // update table
+            };
+            alloc
+        }) && alloc
+        {
+            // we found a nod!
+            let ptr = InodePtr::new(idx as u16 + 1); // add one so inode 0 isn't seen as a null pointer
+            write_inode_block(&ptr, tbl, write)?;
+            return Ok(InodePtr::new(idx as u16));
+        }
+    }
+
+    Err(AllocInodeError::OutOfInodes)
+}
+
 #[derive(Error, Debug)]
-pub enum AllocINodeError<E> {
-    #[error("ran out of available inodes, delete some files to regain entries")]
+pub enum AllocInodeError<E> {
+    #[error("ran out of space on the inode table!")]
     OutOfInodes,
 
-    #[error("ran out of blocks on the filesystem, looks like all storage has been used up")]
-    OutOfBlocks,
-
-    #[error(transparent)]
-    WriteError(#[from] InodeIOError<E>),
+    #[error("update error: {0}")]
+    UpdateInode(#[from] UpdateInodeError<E>),
 }
 
-/// Writes the `ptr`th inode to disk. May block for up to 20 ms.
-fn write_inode<E>(ptr: u64, write: Write<E>, tbl: &InodeTable) -> Result<(), InodeIOError<E>> {
-    let mut buf = [const { INode::zeroed() }; 4];
-    let lba = (ptr as usize) & !0b11; // lowest multiple of 4
-
-    if lba > INODES {
-        return Err(InodeIOError::NoInodeFound(ptr));
-    }
-
-    // Try to read from the table
-    'retries: for _ in 0..EXMAP_RETRIES {
-        for (idx, inode) in tbl[lba..lba + 4].iter().enumerate() {
-            if inode.map(|nod| buf[idx] = nod.clone()).is_none() {
-                continue 'retries;
-            }
-        }
-
-        let buf: [u8; size_of::<INode>() * 4] = unsafe { core::mem::transmute(buf) };
-        return write(INODE_START + lba as u64, &buf).map_err(Into::into);
-    }
-
-    Err(InodeIOError::TableBusy)
-}
-
-/// Reads the data in `ptr`th inode from disk `buf` and returns the number of blocks read.
-/// May block for up to 20 ms.
-pub fn read_inode<E>(
-    ptr: u64,
-    buf: &mut [u8],
-    read: Read<E>,
+/// Writes the non-null inode pointer `ptr`, as well as the other inodes in it's block to the drive.
+fn write_inode_block<E>(
+    ptr: &InodePtr,
     tbl: &InodeTable,
-) -> Result<u16, InodeIOError<E>> {
-    let exmap = tbl
-        .get(ptr as usize)
-        .ok_or(InodeIOError::NoInodeFound(ptr))?;
+    write: Write<E>,
+) -> Result<(), UpdateInodeError<E>> {
+    let ptr = ptr.get_table_idx().ok_or(UpdateInodeError::NullPtr)? as u64;
+    let block = (ptr & !0b11) + INODE_START; // round down to start of block
 
-    // Try to read from the table
-    let mut ptrs = DualBlockPtr::empty_arr();
-    for _ in 0..EXMAP_RETRIES {
-        if exmap.map(|nod| ptrs = nod.meta.clone()).is_none() {
-            continue;
+    // Get nods in the block
+    let (mut buf, ptr) = ([const { INode::zeroed() }; 4], ptr as usize);
+    for (idx, exmap) in tbl[ptr..ptr + 4].iter().enumerate() {
+        if exmap.map(|n| buf[idx] = n.clone()).is_none() {
+            return Err(UpdateInodeError::TblExmapFailure);
         }
-
-        // Ok! ptrs now contains the blocks we need to read from
-        let mut ptrs_read = 0;
-        let mut tmp_buf = [0; BLOCK_SIZE];
-
-        // Read the ptrs into the buf one block at a time, filtering out null ptrs
-        for ptrs in ptrs.iter().map(|p| p.decode()) {
-            for ptr in ptrs.into_iter().filter(|ptr| *ptr != 0) {
-                // Return if we've hit the end of the supplied buffer
-                if buf.len() < (ptrs_read + 1) * BLOCK_SIZE {
-                    return Ok(ptrs_read as u16);
-                }
-
-                read(ptr as u64, &mut tmp_buf)?;
-                buf[ptrs_read * BLOCK_SIZE..(ptrs_read + 1) * BLOCK_SIZE].copy_from_slice(&tmp_buf);
-                ptrs_read += 1;
-            }
-        }
-
-        // Return now that we've read all the ptrs
-        return Ok(ptrs_read as u16);
     }
 
-    Err(InodeIOError::TableBusy)
+    write(block, buf.as_bytes())?;
+    Ok(())
 }
 
-/// The error returned when trying to write and write inodes to/from disk.
 #[derive(Error, Debug)]
-pub enum InodeIOError<E> {
-    #[error("the inode task couldn't be accessed in a reasonable amount of time")]
-    TableBusy,
+pub enum UpdateInodeError<E> {
+    #[error("passed a null pointer")]
+    NullPtr,
 
-    #[error("write fn error: {0}")]
+    #[error("unable to access nods in the table exmap")]
+    TblExmapFailure,
+
+    #[error("write error: {0}")]
     WriteError(#[from] E),
-
-    #[error("no inode found with index {0}")]
-    NoInodeFound(u64),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FileMode;
 
-    /// Tests that [`alloc_bmp`] works correctly.
+    /// Tests that [`alloc_bmp`] prevents allocating the same block twice.
     #[test]
     #[allow(unused)]
-    fn alloc_bmp_works() {
-        inode_statics!();
-        for ptr in 0..INODES as u64 {
-            assert_eq!(alloc_bmp(ptr, &INODE_BMP), Some(false));
-            assert_eq!(alloc_bmp(ptr, &INODE_BMP), Some(true));
+    #[rustfmt::skip]
+    fn no_double_bmp_alloc() {
+        table_statics!();
+        assert_eq!(alloc_bmp(&BlockPtr(None), &BLOCK_BMP), Err(AllocBmpError::NullPtr));
+        for ptr in 1..BlockPtr::MAX_VAL {
+            let blk = BlockPtr::new(ptr);
+            assert_eq!(alloc_bmp(&blk, &BLOCK_BMP), Ok(()));
+            assert_eq!(alloc_bmp(&blk, &BLOCK_BMP), Err(AllocBmpError::AlreadyInUse(blk)));
         }
     }
 
-    /// Tests that [`InodeTable`] & [`InodeBitmap`] have the right size.
+    /// Tests that [`alloc_bmp`] sees writes to the block bitmap.
+    #[test]
+    #[allow(unused)]
+    #[rustfmt::skip]
+    fn bmp_alloc_persistence() {
+        table_statics!();
+        BLOCK_BMP[0].map(|idx| *idx = 0b10).unwrap(); // alloc block 1
+        let blk = BlockPtr::new(1);
+        assert_eq!(alloc_bmp(&blk, &BLOCK_BMP), Err(AllocBmpError::AlreadyInUse(blk)));
+        assert_eq!(alloc_bmp(&BlockPtr::new(2), &BLOCK_BMP), Ok(()));
+    }
+
+    /// Tests that [`alloc_inode`] works ok.
+    #[test]
+    #[allow(unused)]
+    fn alloc_inode_works() {
+        table_statics!();
+        static NOD: INode = INode::new(FileMode::DIRECTORY, 0, InodePtr::new(0x42));
+        fn write(ptr: u64, buf: &[u8]) -> Result<(), ()> {
+            assert_eq!(ptr, 1); // writing to the first inode block
+            assert_eq!(&buf[..size_of::<INode>()], NOD.as_bytes()); // nod wrote ok
+            assert_eq!(&buf[size_of::<INode>()..], [0; size_of::<INode>() * 3]); // the rest of the buf is uninit nods
+            Ok(())
+        }
+
+        alloc_inode(&NOD, &INODE_TBL, write).unwrap();
+        INODE_TBL[0].map(|n| assert_eq!(*n, NOD));
+    }
+
+    /// Tests that [`alloc_next_bmp`] works correctly.
+    #[test]
+    #[allow(unused)]
+    fn alloc_next_bmp_works() {
+        table_statics!();
+        for ptr in 1..BlockPtr::MAX_VAL {
+            assert_eq!(alloc_next_bmp(&BLOCK_BMP), BlockPtr::new(ptr));
+        }
+        assert!(alloc_next_bmp(&BLOCK_BMP).is_null())
+    }
+
+    /// Tests that [`InodeTable`] & [`BlockBitmap`] have the right size.
     #[test]
     #[rustfmt::skip]
     fn types_have_the_right_size() {
         assert_eq!(size_of::<InodeTable>(), size_of::<ExclusiveMap<INode>>() * INODES);
-        assert_eq!(size_of::<InodeBitmap>(), size_of::<ExclusiveMap<u8>>() * INODES * u8::BITS as usize);
+        assert_eq!(size_of::<BlockBitmap>(), size_of::<ExclusiveMap<u128>>() * BlockPtr::MAX_VAL as usize / U128_BITS);
     }
 }

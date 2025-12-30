@@ -17,14 +17,12 @@ mod vga;
 /// Allows reading and writing to floppy disk drives.
 mod floppy;
 
-/// Allows interacting with files and directories.
-mod fs;
-
 /// Handles loading a new TSS & GDT.
 mod gdt;
 
 /// Handles various interrupts
 mod interrupts;
+
 /// Handles writing to and reading from specific I/O ports
 mod ports;
 
@@ -72,22 +70,11 @@ pub unsafe extern "C" fn kmain() -> ! {
         startup::run("Checked CPUID", sysinfo::check_cpuid);
         startup::run("Finished RTC sync", time::wait_for_rtc_sync);
         startup::run("Initialised floppy drive", floppy::init_wrapper);
-        startup::run("Mounted floppy drive", fs::init_floppyfs);
+        startup::run("Initialised floppyfs", floppy::floppyfs::init_floppyfs);
     }
 
     #[cfg(test)]
     tests();
-
-    if cfg!(feature = "debug_info") {
-        let nod = libfs::INode::zeroed();
-        let ptr = fs::alloc_inode(nod, 1, 2 * 18 * 80).unwrap();
-        let mut buf = [0; 512];
-        let c = fs::read_inode(ptr, &mut buf).unwrap();
-        println!("read {c} from {ptr}");
-    }
-
-    let buf = [42; 512];
-    floppy::disk::write(8, &buf).unwrap();
 
     vga::draw_topbar("Sunflower");
     println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
