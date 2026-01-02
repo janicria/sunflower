@@ -1,21 +1,15 @@
 use super::{
-    IRQ_START, Idt, IntStackFrame,
-    rbod::{self, ErrCodeHandler, ErrorCode, RbodErrInfo},
+    IRQ_START,
+    Idt,
+    IntStackFrame,
 };
 use crate::{gdt, vga::buffers};
 #[cfg(test)]
 use crate::{interrupts::IDT, tests::exit_qemu};
-use core::{
-    arch::{asm, naked_asm},
-    sync::atomic::Ordering,
-};
+use core::arch::{asm, naked_asm};
 use libutil::TableDescriptor;
 
 type Handler = u64;
-
-/// Error code argument passed to cont and rbod.
-#[unsafe(no_mangle)]
-pub static mut ERR_CODE: ErrorCode = ErrorCode::Invalid;
 
 /// Pushes all registers which need to be saved before calling C ABI functions.
 macro_rules! pushregs {
@@ -54,8 +48,7 @@ macro_rules! cont_wrapper {
         extern "C" fn wrapper() -> ! {
             naked_asm!(
                 pushregs!(),                            // save state before calling cont
-                concat!("mov rdi, ", stringify!($err)), // err code
-                "mov ERR_CODE, rdi",                    // store err code in static
+                concat!("mov word ptr ERR_CODE, ", stringify!($err)), // err code
                 "mov rdi, rsp",                         // store stack frame in first arg
                 "add rdi, 9*8",                         // offset the 9 registers just got pushed
                 "call cont",
@@ -69,29 +62,39 @@ macro_rules! cont_wrapper {
     }};
 }
 
-/// Continues execution after an error occurs.
+/// Prints the error passed by the wrapper.
 #[unsafe(no_mangle)]
-fn cont(_frame: IntStackFrame) {
-    rbod::SMALL_ERRS.fetch_add(1, Ordering::Relaxed);
+#[cfg_attr(test, allow(unused_variables))]
+extern "C" fn cont(frame: IntStackFrame) {
+    #[unsafe(no_mangle)]
+    static mut ERR_CODE: ErrCode = ErrCode::Invalid;
+
+    #[derive(Debug, Clone, Copy)]
+    #[repr(u8)]
+    #[allow(unused)]
+    enum ErrCode {
+        Breakpoint = 3,
+        InvalidOpcode = 6,
+        Invalid = 255,
+    }
+
+    // some tests deliberately trigger cont exceptions
     #[cfg(not(test))]
     {
-        // some tests deliberately trigger cont exceptions
-        print!(fg = LightRed, "An unexpected error occurred: ");
-        let err = unsafe { ERR_CODE };
-        println!("{err:?} at {:x}", _frame.ip);
+        // Safety: ERR_CODE is only ever accessed here and in cont_wrapper
+        let error = unsafe { ERR_CODE };
+        println!(
+            fg = LightRed,
+            "An unexpected error occurred: {error:?} at 0x{:x}", frame.ip
+        );
     }
 }
 
-/// Calls rbod, never returns.
+/// Triggers a kernel panic, never returns.
 macro_rules! rbod_wrapper {
     ($err: expr) => {{
-        #[unsafe(naked)]
-        extern "C" fn wrapper() -> ! {
-            naked_asm!(
-                concat!("mov qword ptr ERR_CODE, ", stringify!($err)), // err code
-                "mov rdi, rsp",   // store stack frame in first arg
-                "jmp setup_rbod", // never returns so need for iretq
-            )
+        extern "x86-interrupt" fn wrapper(frame: IntStackFrame) {
+            panic!("{}, {frame}", $err)
         }
 
         wrapper as *const () as Handler
@@ -218,58 +221,44 @@ fn bit_set(code: u64, bit: u64, set: &'static str, clear: &'static str) -> &'sta
 /// Ran when a page fault occurs.
 #[inline(never)]
 extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64) {
-    super::rbod::rbod(
-        ErrorCode::PageFault,
-        RbodErrInfo::Exception(frame),
-        ErrCodeHandler::new(handler, err_code),
+    let present = bit_set(err_code, 0, "Page-protection Violation", "Non-present page");
+    let causer = bit_set(err_code, 2, "User", "Privileged");
+    let addr: usize;
+    unsafe { asm!("mov {}, cr2", out(reg) addr) }
+
+    let rwrite = bit_set(err_code, 3, "Reserved write, ", "");
+    let instruction = bit_set(err_code, 4, "Instruction fetch, ", "");
+    let pkey = bit_set(err_code, 5, "Protection key, ", "");
+    let sstack = bit_set(err_code, 6, "Shadow stack", "");
+
+    panic!(
+        "PAGE FAULT
+      {frame}
+      Cause: {present} at address 0x{addr:x} by {causer}\n      Flags: {rwrite}{instruction}{pkey}{sstack}\n"
     );
-
-    fn handler(err_code: u64) {
-        let present = bit_set(err_code, 0, "Page-protection Violation", "Non-present page");
-        let causer = bit_set(err_code, 2, "User", "Privileged");
-        let addr: usize;
-        unsafe { asm!("mov {}, cr2", out(reg) addr) }
-
-        let rwrite = bit_set(err_code, 3, "Reserved write, ", "");
-        let instruction = bit_set(err_code, 4, "Instruction fetch, ", "");
-        let pkey = bit_set(err_code, 5, "Protection key, ", "");
-        let sstack = bit_set(err_code, 6, "Shadow stack", "");
-
-        println!(
-            "  Cause: {present}  Address: {addr}  Privilege: {causer}\n  Flags: {rwrite}{instruction}{pkey}{sstack}\n"
-        )
-    }
 }
 
 /// Ran when a general protection fault occurs.
 #[inline(never)]
 extern "x86-interrupt" fn gpf_handler(frame: IntStackFrame, err_code: u64) {
-    super::rbod::rbod(
-        ErrorCode::GeneralProtectionFault,
-        RbodErrInfo::Exception(frame),
-        ErrCodeHandler::new(handler, err_code),
-    );
+    if err_code == 0 {
+        panic!("General protection fault\n      {frame}\n      Not segment related");
+    } else {
+        // Reference: https://wiki.osdev.org/Exceptions#Selector_Error_Code
+        let external = bit_set(err_code, 0, "True", "False");
+        let idx = err_code >> 3;
+        let table = (err_code >> 1) & 0b11;
 
-    fn handler(err_code: u64) {
-        if err_code == 0 {
-            println!("  Not segment related\n\n")
-        } else {
-            // Reference: https://wiki.osdev.org/Exceptions#Selector_Error_Code
-            let external = bit_set(err_code, 0, "True", "False");
-            let idx = err_code >> 3;
-            let table = (err_code >> 1) & 0b11;
+        let descriptor = match table {
+            0b00 => "GDT",
+            0b01 | 0b10 => "IDT",
+            0b11 => "LDT",
+            _ => "Unknown", // this should never happen
+        };
 
-            let descriptor = match table {
-                0b00 => "GDT",
-                0b01 | 0b10 => "IDT",
-                0b11 => "LDT",
-                _ => "Unknown", // this should never happen
-            };
-
-            println!(
-                "     Occurred externally: {external}   Descriptor: {descriptor}   Selector index: {idx}\n\n"
-            );
-        }
+        panic!(
+            "General protection fault\n      {frame}\n      External: {external} | Descriptor: {descriptor} | Selector index: {idx}"
+        );
     }
 }
 
@@ -289,7 +278,7 @@ extern "C" fn double_fault_handler() -> ! {
 
 /// Used by the double fault handler to print an error message.
 #[unsafe(no_mangle)]
-#[allow(unused)]
+#[cfg_attr(test, allow(unused))]
 extern "C" fn print_df_info(frame: IntStackFrame) {
     // The last test ran by tests::run_tests, checks that a stack overflow
     // causes a double fault, so we need to exit running tests in it's handler

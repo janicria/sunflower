@@ -71,6 +71,6 @@ pub unsafe fn init() -> ExitCode<Infallible> {
 
     // Safety: Just initialised it above
     unsafe { startup::PIC_INIT.store(true) }
-    
+
     ExitCode::Infallible
 }

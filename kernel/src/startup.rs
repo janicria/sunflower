@@ -16,7 +16,7 @@ pub static PIC_INIT: UnsafeFlag = UnsafeFlag::new(false);
 /// Whether or not the PIT has been initialised yet
 /// # Flag
 /// Falsely setting this flag to true causes `time::wait` to loop forever and causes
-/// `time::wait_no_ints` and `speaker::play` to assume that they've been initialised.
+/// `speaker::play` to assume that it's initialised.
 pub static PIT_INIT: UnsafeFlag = UnsafeFlag::new(false);
 
 /// Whether or not the PS/2 keyboard has been initialised yet
@@ -88,12 +88,12 @@ pub enum ExitCode<E> {
     /// The task can't fail.
     Infallible,
 
-    /// The task passed, enable the group flags.
+    /// The task passed.
     Ok,
 
-    /// The task encountered an error, disable the group flags.
+    /// The task encountered an error.
     Error(E),
 
-    /// Stop execution of the kernel and hang.
+    /// Trigger a kernel panic.
     Stop(E),
 }

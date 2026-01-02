@@ -64,7 +64,6 @@ pub fn read(block: u64, buf: &mut [u8]) -> Result<(), FloppyError> {
     let fst_cyl_boundary = (fst_cyl_distance * SECTOR_SIZE).min(buf.len());
     disk::read(block, &mut buf[..fst_cyl_boundary])?;
 
-
     let block = block + fst_cyl_distance as u64;
     for (idx, buf) in buf[fst_cyl_boundary..].chunks_mut(CYL_BOUNDARY).enumerate() {
         let block = block + (idx as u64 * SECTORS as u64);
@@ -116,13 +115,13 @@ pub fn init_floppyfs() -> ExitCode<InitError> {
 /// An error created when trying to initialise the floppy filesystem.
 #[derive(Error, Debug)]
 pub enum InitError {
-    #[error("the floppy driver failed!")]
+    #[error("The floppy driver failed!")]
     NoFloppyDriver,
 
-    #[error("floppy error: {0}")]
+    #[error("floppy driver error: {0}")]
     FloppyError(#[from] FloppyError),
 
-    #[error("the floppy drive was corrupt!")]
+    #[error("The floppy drive was corrupt!")]
     CorruptDrive,
 
     #[error("read table error: {0}")]

@@ -2,7 +2,10 @@ use super::{
     buffers::{BUFFER_HEIGHT, BUFFER_WIDTH, YoinkedBuffer},
     cursor::{self, CursorPos, CursorShift},
 };
-use core::{fmt::{self, Write}, sync::atomic::Ordering};
+use core::{
+    fmt::{self, Write},
+    sync::atomic::Ordering,
+};
 
 #[cfg(test)]
 use crate::tests::write_serial;
@@ -30,7 +33,12 @@ pub enum Color {
     White = 15,
 }
 
-/// A character value supported by `VGA`.
+/// A character value supported by the VGA's [text mode](https://en.wikipedia.org/wiki/VGA_text_mode).
+/// It has the following bit layout:
+///
+/// - Bits 0-7 ~ Character
+/// - Bits 8-11 ~ Foreground [`color`](Color)
+/// - Bits 12-15 ~ Background [`color`](Color) (bit 15 is sometimes blink)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct VGAChar(u16);
@@ -39,32 +47,19 @@ impl VGAChar {
     /// The space character.
     pub const SPACE: VGAChar = VGAChar::new(0x20, Color::White, Color::Black);
 
-    /// A box character for top left corners.
-    pub const TOPLEFT_CORNER: VGAChar = VGAChar::new(0xC9, Color::Grey, Color::Black);
-
-    /// A box character for bottom left corners.
-    pub const BOTTOMLEFT_CORNER: u8 = 0xC8;
-
-    /// A box character for top right corners.
-    pub const TOPRIGHT_CORNER: VGAChar = VGAChar::new(0xBB, Color::Grey, Color::Black);
-
-    /// A box character for bottom right corners.
-    pub const BOTTOMRIGHT_CORNER: VGAChar = VGAChar::new(0xBC, Color::Grey, Color::Black);
-
-    /// A box character for vertical borders.
-    pub const VERTICAL_BORDER: VGAChar = VGAChar::new(0xBA, Color::White, Color::Black);
-
-    /// A box character for horizontal borders.
-    pub const HORIZONTAL_BORDER: VGAChar = VGAChar::new(0xCD, Color::White, Color::Black);
-
     /// Constructs a new color using `fg` as the text color and `bg` as the background color.
     pub const fn new(char: u8, fg: Color, bg: Color) -> VGAChar {
         VGAChar((char as u16) | (bg as u16) << 12 | (fg as u16) << 8)
     }
 
-    /// Converts the char to it's integer form.
-    pub const fn as_u16(&self) -> u16 {
+    /// Returns a reference to `self` as an int.
+    pub const fn as_raw(&self) -> u16 {
         self.0
+    }
+
+    /// Returns a mutable reference to `self` as an int.
+    pub const fn as_raw_mut(&mut self) -> &mut u16 {
+        &mut self.0
     }
 }
 
@@ -112,8 +107,8 @@ macro_rules! warn {
 pub enum Corner {
     TopLeft = 0xb8000,
     TopRight = 0xb809e,
-    BottomLeft = 0xb8efe,
-    BottomRight = 0xb903e,
+    // BottomLeft = 0xb8efe,
+    // BottomRight = 0xb903e,
 }
 
 /// Used by `_print` to print.

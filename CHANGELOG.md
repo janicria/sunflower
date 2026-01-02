@@ -1,5 +1,14 @@
 # Sunflower changelog
 
+## Development 15
+##### Better panics 2/1/26
+
+- Axed rbod and moved most of its code to the new `panic` module
+- Touched up the `README` & some screenshots
+- Finally removed `wait_no_ints`
+- Improved the error message displayed by some floppy errors
+- Touched up the `VGAChar` type
+
 ## Development 14
 ##### floppy & libfs de-spaghettification 30/12/25
 
@@ -8,7 +17,7 @@
 - Moved the floppy reset functions to a new reset module
 - Reorganized a lot of the floppy module
 
-# Development 13
+## Development 13
 ##### libfs 12/12/25
 
 - Finally hlted during the keyboard poll loop, saving a LOT of wasted cpu resources
@@ -17,7 +26,7 @@
 - Made the year field in `VERSION` the current year because that just makes more sense
 - Added a new kernel test for continuing after breakpoints and invalid opcodes
 
-# Development 12
+## Development 12
 ##### Misc improvements 8/12/25
 
 - Added the new `ExitCode` return type to `startup::run`

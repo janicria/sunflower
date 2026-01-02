@@ -48,16 +48,9 @@ pub fn stop() {
 /// Plays `freq` for `time` milliseconds.
 ///
 /// Repeatedly plays then stops playing at 100ms intervals if `repeat` is set.
-///
-/// Works without external interrupts, yet is slightly inaccurate if `no_ints` is set.
-pub fn play_special(freq: u32, millis: u64, repeat: bool, no_ints: bool) {
-    let (wait, ticks) = if no_ints {
-        // Normal speed in VM, insanely slow on old computers.
-        (time::wait_no_ints as fn(u64), millis / 2)
-    } else {
-        // Convert millis to ticks
-        (time::wait as fn(u64), millis / 10)
-    };
+pub fn play_special(freq: u32, millis: u64, repeat: bool) {
+    // FIXME: make this actually convert from milliseconds by dividing by 10 (yet still have 'songs' sound good)
+    let ticks = millis / 13; // convert millis to ticks
 
     if !startup::PIT_INIT.load() {
         warn!("attempted playing special with an uninit PIT!");
@@ -65,88 +58,88 @@ pub fn play_special(freq: u32, millis: u64, repeat: bool, no_ints: bool) {
     }
 
     if repeat {
-        static PULSE_LENGTH: u64 = 10;
+        static PULSE_LENGTH: u64 = 6;
         for _ in 0..ticks / (PULSE_LENGTH * 2) {
             play(freq);
-            wait(PULSE_LENGTH);
+            time::wait(PULSE_LENGTH);
             stop();
-            wait(PULSE_LENGTH);
+            time::wait(PULSE_LENGTH);
         }
     } else {
         play(freq);
-        wait(ticks);
+        time::wait(ticks);
         stop();
     }
 }
 
 /// Plays the boot chime.
 pub fn play_chime() {
-    play_special(600, 350, false, false);
-    play_special(620, 450, false, false);
+    play_special(600, 350, false);
+    play_special(620, 450, false);
 
-    play_special(600, 350, false, false);
-    play_special(780, 900, false, false);
+    play_special(600, 350, false);
+    play_special(780, 900, false);
 }
 
 /// Plays when an rbod has occurred and everything is wrong in the world.
 pub fn play_song() {
     // Set 1 - Rising
-    play_special(400, 300, false, true);
-    play_special(430, 300, false, true);
-    play_special(450, 300, false, true);
-    play_special(500, 250, false, true);
-    play_special(550, 250, false, true);
+    play_special(400, 300, false);
+    play_special(430, 300, false);
+    play_special(450, 300, false);
+    play_special(500, 250, false);
+    play_special(550, 250, false);
 
     // Set 2 - Beeping 1
-    play_special(450, 100, false, true);
-    play_special(400, 150, false, true);
-    play_special(500, 250, false, true);
-    play_special(550, 250, false, true);
+    play_special(450, 100, false);
+    play_special(400, 150, false);
+    play_special(500, 250, false);
+    play_special(550, 250, false);
 
     // Set 3 - Beeping 2
-    play_special(600, 100, false, true);
-    play_special(620, 100, false, true);
-    play_special(600, 100, false, true);
-    play_special(620, 100, false, true);
-    play_special(600, 100, false, true);
-    play_special(620, 100, false, true);
-    play_special(500, 100, false, true);
-    play_special(480, 100, false, true);
+    play_special(600, 100, false);
+    play_special(620, 100, false);
+    play_special(600, 100, false);
+    play_special(620, 100, false);
+    play_special(600, 100, false);
+    play_special(620, 100, false);
+    play_special(500, 100, false);
+    play_special(480, 100, false);
 
     // Set 2 - Beeping 1
-    play_special(450, 100, false, true);
-    play_special(400, 150, false, true);
-    play_special(500, 250, false, true);
-    play_special(550, 250, false, true);
+    play_special(450, 100, false);
+    play_special(400, 150, false);
+    play_special(500, 250, false);
+    play_special(550, 250, false);
 
     // Set 1 - Rising
-    play_special(400, 300, false, true);
-    play_special(430, 300, false, true);
-    play_special(450, 300, false, true);
-    play_special(500, 250, false, true);
-    play_special(550, 250, false, true);
+    play_special(400, 300, false);
+    play_special(430, 300, false);
+    play_special(450, 300, false);
+    play_special(500, 250, false);
+    play_special(550, 250, false);
 
     // Set 2 - Beeping 1
-    play_special(450, 100, false, true);
-    play_special(400, 150, false, true);
-    play_special(500, 250, false, true);
-    play_special(550, 250, false, true);
+    play_special(450, 100, false);
+    play_special(400, 150, false);
+    play_special(500, 250, false);
+    play_special(550, 250, false);
 
     // Set 4 - Uh oh
-    play_special(600, 900, true, true);
-    play_special(500, 800, false, true);
-    play_special(600, 900, true, true);
+    play_special(600, 900, true);
+    play_special(500, 800, false);
+    play_special(600, 900, true);
 
     // Set 5 - Fade out
-    play_special(550, 100, false, true);
-    play_special(540, 100, false, true);
-    play_special(530, 100, false, true);
-    play_special(520, 100, false, true);
-    play_special(510, 100, false, true);
-    play_special(500, 100, false, true);
-    play_special(490, 100, false, true);
-    play_special(480, 100, false, true);
-    play_special(470, 100, false, true);
-    play_special(460, 100, false, true);
-    play_special(450, 1350, false, true);
+    play_special(550, 100, false);
+    play_special(540, 100, false);
+    play_special(530, 100, false);
+    play_special(520, 100, false);
+    play_special(510, 100, false);
+    play_special(500, 100, false);
+    play_special(490, 100, false);
+    play_special(480, 100, false);
+    play_special(470, 100, false);
+    play_special(460, 100, false);
+    play_special(450, 1350, false);
 }

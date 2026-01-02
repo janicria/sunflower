@@ -3,7 +3,13 @@
 #![test_runner(tests::run_tests)]
 #![reexport_test_harness_main = "tests"]
 #![forbid(static_mut_refs)] // clippy::undocumented_unsafe_blocks)]
-#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks)]
+#![feature(
+    abi_x86_interrupt,
+    sync_unsafe_cell,
+    yeet_expr,
+    custom_test_frameworks,
+    trim_prefix_suffix
+)]
 #![allow(
     clippy::unusual_byte_groupings,
     clippy::deref_addrof,
@@ -22,6 +28,7 @@ mod gdt;
 
 /// Handles various interrupts
 mod interrupts;
+mod panic;
 
 /// Handles writing to and reading from specific I/O ports
 mod ports;

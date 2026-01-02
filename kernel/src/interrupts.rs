@@ -14,9 +14,6 @@ mod keyboard;
 /// Loads both PICs and allows sending EOI commands.
 mod pic;
 
-/// Handles exceptions and panics.
-mod rbod;
-
 /// Where IRQ vectors start in the IDT.
 static IRQ_START: usize = 32;
 
@@ -43,7 +40,7 @@ impl Display for IntStackFrame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "  Location: {:x}   Flags: {}   Code segment: {}\n  Stack pointer: {:x}   Stack segment: {}",
+            "Stack frame for 0x{:x}: flags: {}\n      CS: {:x} | CP: {:x} | SS: {:x}",
             self.ip, self.flags, self.cs, self.sp, self.ss
         )
     }
@@ -81,7 +78,7 @@ pub fn kbd_poll_loop() -> ! {
     loop {
         keyboard::poll_keyboard();
 
-        // Safety: Repeatedly busy waiting for a new key to be pressed is stupidly inefficient,
+        // Repeatedly busy waiting for a new key to be pressed is stupidly inefficient,
         // since the PIT fires an interrupt every ms anyway, why not just hlt after each poll?
         unsafe { asm!("hlt") }
 
@@ -120,6 +117,12 @@ pub fn sti() {
 /// Clears external interrupts.
 pub fn cli() {
     unsafe { asm!("cli") }
+}
+
+/// Halts the CPU.
+pub fn hlt() {
+    // Safety: Just halting
+    unsafe { asm!("hlt") }
 }
 
 /// Causes a triple fault.

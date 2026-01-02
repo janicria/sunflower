@@ -1,5 +1,4 @@
 use crate::{
-    interrupts::rbod::{ErrorCode, RbodErrInfo},
     ports::{self, Port},
     speaker,
     startup::{self, ExitCode},
@@ -135,7 +134,7 @@ impl Display for KbdInitError {
 }
 
 /// Waits for either `y`, `n` or `enter` to be pressed.
-#[allow(unused)]
+#[cfg_attr(test, allow(unused))]
 pub fn wait_for_response(enter_eq_true: bool) -> bool {
     /// The scancode for `y` in scancode set 2.
     const Y_SCANCODE: u8 = 0x35;
@@ -263,8 +262,8 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
     if (kbd.is_ctrl() && kbd.is_alt()) || SYSRQ.load(Ordering::Relaxed) {
         match key {
             KeyCode::F1 => print_sysinfo(),
-            KeyCode::F3 => speaker::play_special(600, 400, false, false),
-            KeyCode::F4 => super::rbod::rbod(ErrorCode::SysCmd4, RbodErrInfo::None, None),
+            KeyCode::F3 => speaker::play_song(),
+            KeyCode::F4 => panic!("Triggered System Command 4 by pressing Ctrl+Alt+F4 or SysRq+F4"),
             KeyCode::F5 => super::triple_fault(),
             KeyCode::F6 => buffers::swap(),
             KeyCode::F7 => print_help(),
@@ -325,14 +324,6 @@ Note: The SysRq key might be the same as PrintScreen on your keyboard."
         "By using the arrow keys, you can position the cursor to anywhere on the screen.
 You can write or draw whatever you want, by typing characters on your keyboard."
     );
-
-    // Explains what rbod is
-    println!(fg = LightBlue, "\nRBOD - Rainbow Box Of Death");
-    print!(
-        "Sunflower's crash handler is called rbod (original name I know).
-It looks really cool and I recommend running SysCmd 4 just to see it.
-When in rbod you're locked to the three key options, and can't do anything else."
-    )
 }
 
 /// Handles when an arrow key is pressed.

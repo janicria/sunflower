@@ -339,7 +339,9 @@ pub enum DiskError {
     FifoTimeout,
 
     /// The sector or head values aren't valid CHS
-    #[error("found strange floppy sector / head values: {0} / {1}, did you io over a cylinder boundary?")]
+    #[error(
+        "found strange floppy sector / head values: {0} / {1}, did you io over a cylinder boundary?"
+    )]
     BadSectOrHead(u8, u8),
 
     /// Tried writing to read only data.

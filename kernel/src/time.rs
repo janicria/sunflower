@@ -5,10 +5,10 @@ use crate::{
     vga::print::{Color, Corner, VGAChar},
 };
 use core::{
-    arch::{asm, naked_asm},
+    arch::naked_asm,
     fmt::Display,
     hint, ptr,
-    sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
 use libutil::InitLater;
 use thiserror::Error;
@@ -75,9 +75,9 @@ pub fn set_waiting_char(show: bool) {
         return;
     }
 
-    const CHAR: u16 = VGAChar::new(1, Color::Black, Color::LightGrey).as_u16();
+    const CHAR: u16 = VGAChar::new(1, Color::Black, Color::LightGrey).as_raw();
     static PREV: AtomicU16 = AtomicU16::new(0);
-    
+
     let ptr = Corner::TopRight as usize as *mut u16;
     let write_char = |char: u16| {
         // Safety: TopRight is valid, aligned & won't do anything weird when written to
@@ -109,47 +109,7 @@ pub fn wait(ticks: u64) {
     // wait...
     let target_time = get_time() + ticks + 1;
     while get_time() < target_time {
-        // Safety: Just halting
-        unsafe { asm!("hlt") }
-    }
-
-    set_waiting_char(false);
-}
-
-/// Waits for approximately `ticks` ticks (`ticks / 100` seconds).
-///
-/// May be a few milliseconds shorter in times less than few seconds in a VM.
-/// And A LOT slower on ancient computers.
-///
-/// Works with external interrupts disabled.
-pub fn wait_no_ints(ticks: u64) {
-    /// Channel 0. [Reference](https://wiki.osdev.org/Programmable_Interval_Timer#Counter_Latch_Command)
-    static COMMAND: u8 = 0b00_000000;
-
-    /// The lowest possible value the count can be before being reset.
-    static MIN_COUNT_VALUE: u16 = 2;
-
-    /// How many ticks have passed since the function was called.
-    static TIME: AtomicU64 = AtomicU64::new(0);
-
-    if !startup::PIT_INIT.load() {
-        warn!("attempted waiting (without ints) with an uninit PIT!");
-        return;
-    }
-
-    let target = TIME.load(Ordering::Relaxed) + ticks;
-    set_waiting_char(true);
-
-    // FIXME: What the hell is this
-    while TIME.load(Ordering::Relaxed) < target {
-        unsafe {
-            ports::writeb(Port::PITCmd, COMMAND);
-            let mut count = ports::readb(Port::PITChannel0) as u16; // low byte
-            count |= (ports::readb(Port::PITChannel0) as u16) << 8; // high byte
-            if count == MIN_COUNT_VALUE {
-                TIME.fetch_add(1, Ordering::Relaxed);
-            }
-        }
+        interrupts::hlt();
     }
 
     set_waiting_char(false);
@@ -327,7 +287,7 @@ mod tests {
         assert!(get_time() - 15 - time < 3) // less than 3 tick difference
     }
 
-    /// Tests that `wait`, `wait_no_ints` & `play_special` immediately return if the PIT failed initialisation.
+    /// Tests that `wait` & `play_special` immediately return if the PIT failed initialisation.
     #[test_case]
     fn wait_services_require_pit() {
         let init = startup::PIT_INIT.load();
@@ -335,8 +295,7 @@ mod tests {
 
         // Test fails due to timeout
         wait(u64::MAX);
-        wait_no_ints(u64::MAX);
-        speaker::play_special(0, u64::MAX, false, false);
+        speaker::play_special(0, u64::MAX, false);
 
         unsafe { startup::PIT_INIT.store(init) }
     }

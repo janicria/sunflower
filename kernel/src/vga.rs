@@ -1,6 +1,6 @@
 #[cfg(test)]
 use crate::tests::write_serial;
-use crate::{interrupts, startup::ExitCode, sysinfo::SystemInfo};
+use crate::{startup::ExitCode, sysinfo::SystemInfo};
 use buffers::RawBuffer;
 use core::{convert::Infallible, sync::atomic::Ordering};
 use cursor::{ALLOW_ROW_0, CursorPos};
@@ -15,7 +15,6 @@ pub mod cursor;
 /// Exports print macros & allows printing characters.
 #[macro_use]
 pub mod print;
-
 
 /// Connects the `BUFFER` static to the vga text buffer,
 /// and fills it with spaces, allowing the cursor to blink anywhere.
@@ -42,7 +41,6 @@ pub unsafe fn init() -> ExitCode<Infallible> {
 /// Draws the topbar with `title` as it's title.
 /// Title must be exactly 9 bytes long.
 pub fn draw_topbar(title: &'static str) {
-    interrupts::cli();
     let len = title.len();
 
     // Force title to be nine bytes
@@ -74,5 +72,4 @@ pub fn draw_topbar(title: &'static str) {
     ALLOW_ROW_0.store(false, Ordering::Relaxed);
     CursorPos::set_row(prev_row);
     CursorPos::set_col(prev_col);
-    interrupts::sti();
 }
