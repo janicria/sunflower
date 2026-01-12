@@ -1,3 +1,27 @@
+/* ---------------------------------------------------------------------------
+    Sunflower kernel - sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    kernel/src/main.rs
+
+    The kernel's entry point
+*/
+
 #![no_std]
 #![no_main]
 #![test_runner(tests::run_tests)]
@@ -16,39 +40,20 @@
     clippy::identity_op
 )]
 
-/// Allows writing to the VGA text buffer
 #[macro_use]
 mod vga;
-
-/// Allows reading and writing to floppy disk drives.
 mod floppy;
-
-/// Handles loading a new TSS & GDT.
 mod gdt;
-
-/// Handles various interrupts
 mod interrupts;
 mod panic;
-
-/// Handles writing to and reading from specific I/O ports
 mod ports;
-
-/// Allows playing sounds through the PC speaker
 mod speaker;
-
-/// Handles post-boot startup tasks.
 #[macro_use]
 mod startup;
-
-/// Handles system information.
 #[macro_use]
 mod sysinfo;
-
-/// Handles running tests and writing to serial ports.
 #[cfg(test)]
 mod tests;
-
-/// Handles the PIT.
 mod time;
 
 // Warn anyone just running `cargo build` to use seeder tool

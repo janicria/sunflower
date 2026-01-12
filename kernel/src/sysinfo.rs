@@ -1,3 +1,27 @@
+/* ---------------------------------------------------------------------------
+    Sunflower kernel - sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    kernel/src/sysinfo.rs
+
+    Handles CPUID and most of the kernel's system information via the [`SystemInfo`]` type
+*/
+
 use crate::{
     floppy::{self, disk, floppyfs},
     gdt::{self, Gdt},
@@ -93,7 +117,7 @@ fn get_cpuid() -> Option<&'static str> {
     unsafe { str::from_utf8(&*&raw const VENDOR).ok() }
 }
 
-/// Information about the system.
+/// Information about the system gathered from across the kernel.
 pub struct SystemInfo {
     // Sunflower version
     pub sfk_version_long: &'static str,

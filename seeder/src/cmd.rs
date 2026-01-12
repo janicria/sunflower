@@ -1,3 +1,27 @@
+/* ---------------------------------------------------------------------------
+    seeder - Sunflower's build tool, sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    seeder/src/cmd.rs
+
+    Handles running commands on the kernel
+*/
+
 use clap::ArgMatches;
 use std::{
     fs::{self, OpenOptions},
@@ -31,7 +55,7 @@ impl RunCommand {
     }
 }
 
-/// Runs command `cmd` in dir `dir`, installing bootimage if required and aborting if any errors occured.
+/// Runs command `cmd` in dir `dir`, installing bootimage if required and aborting if any errors occurred.
 /// See `kernel/.cargo/config.toml` for a list of commands.
 pub fn run_command(cmd: &RunCommand, dir: &str, args: &ArgMatches) {
     let cmd_str = cmd.as_str();
@@ -88,7 +112,7 @@ pub fn run_command(cmd: &RunCommand, dir: &str, args: &ArgMatches) {
     }
 }
 
-/// Attempts to run command `cmd`, returning false if any errors occured.
+/// Attempts to run command `cmd`, returning false if any errors occurred.
 fn try_run(cmd: &str, dir: &str, args: &ArgMatches) -> Result<(), RunCargoError> {
     // Check for any features
     let debug = args.get_flag("debug");

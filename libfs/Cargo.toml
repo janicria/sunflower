@@ -3,7 +3,7 @@ name = "libfs"
 description = "A library for creating, reading and modifying sunflower readable filesystems."
 version = "0.1.1"
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/janicria/sunflower"
 
 [dependencies]

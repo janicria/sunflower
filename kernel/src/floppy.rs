@@ -1,3 +1,35 @@
+/* ---------------------------------------------------------------------------
+    Sunflower kernel - sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    kernel/src/floppy.rs
+
+    The floppy module handles the FDC and floppy disk IO.
+    This file is responsible for initialising the FDC and filesystem.
+
+    Contains 6 submodules:
+    * disk.rs - Handles floppy disk reading and writing
+    * fifo.rs - Handles FIFO IO and sending commands to the FDC
+    * floppyfs.rs - Initialises the "filesystem" - will be removed soon when snugfs is done
+    * motor.rs - Allows enabling and disabling floppy motors
+    * reset.rs - Handles sending reset commands to FDC
+*/
+
 use crate::{
     exit_on_err,
     floppy::fifo::FloppyCommand,

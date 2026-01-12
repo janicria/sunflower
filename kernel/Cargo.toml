@@ -3,7 +3,7 @@ name = "sunflower"
 description = "A small kernel written in Rust"
 version = "0.0.0"                                    # See the VERSION file for actual version
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/janicria/sunflower"
 
 [dependencies]

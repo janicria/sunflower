@@ -3,7 +3,7 @@ name = "seeder"
 description = "Sunflower's very own build tool!"
 version = "0.1.2"
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/janicria/sunflower"
 
 [dependencies]

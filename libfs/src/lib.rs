@@ -1,20 +1,48 @@
-//! Library for creating, reading and modifying sunflower readable filesystems.
+/* ---------------------------------------------------------------------------
+    libfs - Sunflower kernel filesystem library, sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    libfs/src/lib.rs
+
+    Library root file
+
+    This library is intended to be used with two external functions defined as
+    ```rust
+    /// Read starting from block `block` on the drive into `buf` until it's full.
+    pub type Read<E> = fn(block: u64, buf: &mut [u8]) -> Result<(), E>;
+
+    /// Write `buf` to the drive starting at block `block`.
+    pub type Write<E> = fn(block: u64, buf: &[u8]) -> Result<(), E>;
+    ```
+
+    Note: Blocks are 512 bytes in length.
+
+    Filesystem layout:
+     - Block 0 - Filesystem header
+    - Block 1-36 - Inode table
+    - Block 37... - File data used by inodes
+*/
+
 //!
-//! This library is intended to be used with two external functions defined as
-//! ```rust
-//! /// Read starting from block `block` on the drive into `buf` until it's full.
-//! pub type Read<E> = fn(block: u64, buf: &mut [u8]) -> Result<(), E>;
-//!
-//! /// Write `buf` to the drive starting at block `block`.
-//! pub type Write<E> = fn(block: u64, buf: &[u8]) -> Result<(), E>;
-//! ```
-//!
-//! Note: Blocks are 512 bytes in length.
-//!
-//!  Filesystem layout:
-//! - Block 0 - Filesystem header
-//! - Block 1-36 - Inode table
-//! - Block 37... - File data used by inodes
+//!     ----- IMPORTANT!!!!! -----
+//! 
+//!     this entire library will be removed soon (probs next patch)
+//!     when I finish designing the Snug Filesystem
 
 #![no_std]
 

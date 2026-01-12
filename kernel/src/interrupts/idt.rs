@@ -1,8 +1,29 @@
-use super::{
-    IRQ_START,
-    Idt,
-    IntStackFrame,
-};
+/* ---------------------------------------------------------------------------
+    Sunflower kernel - sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    kernel/src/interrupts/idt.rs
+
+    Handles loading the IDT and it's handlers.
+    Contained within the interrupts module
+*/
+
+use super::{IRQ_START, Idt, IntStackFrame};
 use crate::{gdt, vga::buffers};
 #[cfg(test)]
 use crate::{interrupts::IDT, tests::exit_qemu};
@@ -91,7 +112,7 @@ extern "C" fn cont(frame: IntStackFrame) {
 }
 
 /// Triggers a kernel panic, never returns.
-macro_rules! rbod_wrapper {
+macro_rules! panic_wrapper {
     ($err: expr) => {{
         extern "x86-interrupt" fn wrapper(frame: IntStackFrame) {
             panic!("{}, {frame}", $err)
@@ -109,13 +130,13 @@ impl Idt {
         let mut idt = Idt([InterruptDescriptor::default(); 256]);
 
         // A list of entry IDs can be found at: https://wiki.osdev.org/Exceptions
-        idt.set_handler(0, None, rbod_wrapper!(0));
-        idt.set_handler(1, None, rbod_wrapper!(1));
-        idt.set_handler(2, None, rbod_wrapper!(2));
+        idt.set_handler(0, None, panic_wrapper!(0));
+        idt.set_handler(1, None, panic_wrapper!(1));
+        idt.set_handler(2, None, panic_wrapper!(2));
         idt.set_handler(3, None, cont_wrapper!(3, 0));
-        idt.set_handler(5, None, rbod_wrapper!(5));
+        idt.set_handler(5, None, panic_wrapper!(5));
         idt.set_handler(6, None, cont_wrapper!(6, 2));
-        idt.set_handler(7, None, rbod_wrapper!(7));
+        idt.set_handler(7, None, panic_wrapper!(7));
         idt.set_handler(8, Some(1), double_fault_handler as *const () as Handler);
         idt.set_handler(13, None, gpf_handler as *const () as Handler);
         idt.set_handler(14, None, page_fault_handler as *const () as Handler);

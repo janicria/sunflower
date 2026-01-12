@@ -1,3 +1,33 @@
+/* ---------------------------------------------------------------------------
+    Sunflower kernel - sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    kernel/src/vga.rs
+
+    The vga module handles writing to the vga text buffer.
+    This file is responsible for initialising the VGA driver and drawing the topbar.
+
+    Contains 3 submodules:
+    * buffers.rs - Handles writing to and swapping between buffers
+    * cursor.rs - Handles the vga text mode cursor
+    * print.rs - Defines print macros
+*/
+
 #[cfg(test)]
 use crate::tests::write_serial;
 use crate::{startup::ExitCode, sysinfo::SystemInfo};
@@ -6,13 +36,8 @@ use core::{convert::Infallible, sync::atomic::Ordering};
 use cursor::{ALLOW_ROW_0, CursorPos};
 use print::Corner;
 
-/// Handles writing to and swapping between buffers.
 pub mod buffers;
-
-/// Handles the vga cursor's print & visual positions.
 pub mod cursor;
-
-/// Exports print macros & allows printing characters.
 #[macro_use]
 pub mod print;
 

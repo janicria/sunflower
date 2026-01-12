@@ -1,3 +1,27 @@
+/* ---------------------------------------------------------------------------
+    seeder - Sunflower's build tool, sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    seeder/src/main.rs
+
+    Seeder's entry point
+*/
+
 #![feature(exit_status_error)]
 
 use clap::{
@@ -17,7 +41,6 @@ const CORNFLOWER_BLUE: Color = Color::Rgb(RgbColor(120, 172, 255));
 /// The color used for literals.
 const PURPLE_BLUE: Color = Color::Rgb(RgbColor(163, 158, 255));
 
-/// Used to build and run commands on the kernel.
 mod cmd;
 
 fn main() {

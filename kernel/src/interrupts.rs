@@ -1,3 +1,33 @@
+/* ---------------------------------------------------------------------------
+    Sunflower kernel - sunflowerkernel.org
+    Copyright (C) 2026 janicria
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+--------------------------------------------------------------------------- */
+
+/*!
+    kernel/src/interrupts.rs
+
+    The interrupts module handles exceptions and irqs.
+    This file is responsible for nothing really :(
+
+    Contains 3 submodules:
+    * idt.rs - Handles loading the IDT and it's handlers
+    * keyboard.rs - PS/2 keyboard driver, TODO: move out of the interrupts module
+    * pic.rs - Initialises the PICs
+*/
+
 use crate::{exit_on_err, startup::ExitCode, time, vga::cursor};
 use core::{arch::asm, fmt::Display};
 use idt::InterruptDescriptor;
@@ -5,13 +35,8 @@ pub use keyboard::init as init_kbd;
 use libutil::{InitLater, LoadRegisterError, TableDescriptor};
 pub use pic::init as init_pic;
 
-/// IDT and exception handlers.
 mod idt;
-
-/// Basic PS/2 keyboard input detector.
 mod keyboard;
-
-/// Loads both PICs and allows sending EOI commands.
 mod pic;
 
 /// Where IRQ vectors start in the IDT.
