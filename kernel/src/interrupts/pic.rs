@@ -45,7 +45,7 @@ pub extern "C" fn eoi(irq: u8) {
         return;
     }
 
-    // Safety: If the IRQ came from the main (master) PIC, the EOI must be 
+    // Safety: If the IRQ came from the main (master) PIC, the EOI must be
     // sent to the main only. However if the IRQ came from the secondary (slave)
     // PIC, the command must be sent to both
     unsafe {

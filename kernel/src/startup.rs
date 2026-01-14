@@ -22,9 +22,9 @@
     Handles startup tasks are some *_INIT unsafe flags
 */
 
+use crate::vga::print::{self, Color};
 use core::fmt::Display;
 use libutil::UnsafeFlag;
-use crate::vga::print::{self, Color};
 
 // Whether or not the GDT has been initialised yet
 /// # Flag

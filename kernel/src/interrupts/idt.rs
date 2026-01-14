@@ -255,7 +255,7 @@ extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64
     panic!(
         "PAGE FAULT
       {frame}
-      Cause: {present} at address 0x{addr:x} by {causer}\n      Flags: {rwrite}{instruction}{pkey}{sstack}\n"
+      Cause: {present} at address 0x{addr:x} by {causer}\n      Flags: {rwrite}{instruction}{pkey}{sstack}"
     );
 }
 

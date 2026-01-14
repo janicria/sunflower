@@ -2,3 +2,6 @@
 sdr = "run --manifest-path seeder/Cargo.toml"
 paperclip = "clippy"
 did-i-break-anything = "test"
+
+[target.x86_64-sunflower]
+rustflags = ["-Cforce-frame-pointers=yes"] # save rsp into rbp, needed for stack traces

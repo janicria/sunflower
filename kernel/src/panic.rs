@@ -18,7 +18,7 @@
 
 /*!
     kernel/src/panic.rs
- 
+
     Handles kernel panics created via the [`panic!`] macro
 */
 
@@ -36,10 +36,46 @@ use crate::{
     },
 };
 use core::{
+    arch::asm,
     hint,
     panic::{Location, PanicInfo},
     sync::atomic::{AtomicBool, Ordering},
 };
+
+/// Stores the stack trace of the last function calls into `frames`.
+/// # Safety
+/// The stack trace must be at least `frames` frames deep.
+#[unsafe(no_mangle)]
+#[inline(never)]
+unsafe fn stack_trace(frames: &mut [u64]) -> usize {
+    #[repr(C)]
+    struct Stackframe {
+        next: *const Stackframe,
+        rip: u64,
+    }
+
+    let rbp: *const *const Stackframe;
+    // Safety: RBP should hopefully be a ptr to the function's stackframe
+    let mut stack = unsafe {
+        asm!("mov {0}, rbp", out(reg) rbp);
+        *rbp
+    };
+
+    for frame in frames.iter_mut() {
+        // Safety: The caller must ensure that the trace is contained within '0..frames'
+        let rip = unsafe { *(stack.wrapping_byte_add(8) as *const u64) };
+        if !(0x209000..=0x220000).contains(&rip) || !stack.is_aligned() {
+            // return early if the stack isn't in a 'safe' range or the deref will fail
+            return rbp.addr();
+        }
+
+        *frame = rip;
+        // Safety: At least we know that the addr is in the right space & aligned
+        stack = unsafe { (*stack).next };
+    }
+
+    rbp.addr()
+}
 
 /// Ran when a kernel panic occurs.
 #[panic_handler]
@@ -69,16 +105,15 @@ fn kernel_panic(info: &PanicInfo) -> ! {
 
     let location = info.location().unwrap(); // always succeeds
     let sysinfo = SystemInfo::now();
-
     println!(
         fg = Grey,
-        "\n                                  KERNEL PANIC\n\n
+        "                                  KERNEL PANIC\n
       Sunflower encountered a kernel panic at {}:{}:{}\n
       System information: {} | {} | {} | {} | {}\n
       Press ESC to restart device and ENTER to show previous screen\n
-                           Press any key to continue\n\n
+                           Press any key to continue\n
       Error information:\n
-      {}",
+      {}\n",
         location.file().trim_prefix("src/"),
         location.line(),
         location.column(),
@@ -89,6 +124,15 @@ fn kernel_panic(info: &PanicInfo) -> ! {
         sysinfo.floppy_space.copied().unwrap_or_default(),
         info.message()
     );
+
+    let mut buf = [0; 6];
+    // Safety: The return early check should hopefully ensure nothing bad happens
+    let rbp = unsafe { stack_trace(&mut buf) };
+    println!(fg = Grey, "      Stack frame (RBP=0x{rbp:x}):");
+
+    for (idx, frame) in buf.iter().filter(|f| **f != 0).enumerate() {
+        println!(fg = Grey, "         {idx}   {frame:#8x}")
+    }
 
     paint_screen();
     loop {
