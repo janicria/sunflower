@@ -45,6 +45,7 @@ mod vga;
 mod floppy;
 mod gdt;
 mod interrupts;
+#[macro_use]
 mod panic;
 mod ports;
 mod speaker;

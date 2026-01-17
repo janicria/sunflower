@@ -1,5 +1,17 @@
 # Sunflower changelog
 
+## Development 17
+##### PANIC! macro 17/1/26
+
+- Added the `PANIC!` macro & redid kernel panics
+- Moved most exception handlers to `PANIC!`
+- Cleaned up screenshots
+
+## Development 16
+##### Panic stack traces 14/1/26
+
+- Gave kernel panics stack traces
+
 ## Development 15
 ##### Better panics 2/1/26
 

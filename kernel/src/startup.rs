@@ -94,7 +94,7 @@ where
         ExitCode::Stop(e) => {
             print_box(Color::Red, "STP", name);
             println!("startup task encountered an unrecoverable error: {e}");
-            panic!("startup task {name} returned STOP");
+            PANIC!(badbug "startup task {name} returned STOP");
         }
     };
 

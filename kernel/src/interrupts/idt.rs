@@ -24,7 +24,7 @@
 */
 
 use super::{IRQ_START, Idt, IntStackFrame};
-use crate::{gdt, vga::buffers};
+use crate::{PANIC, gdt, vga::buffers};
 #[cfg(test)]
 use crate::{interrupts::IDT, tests::exit_qemu};
 use core::arch::{asm, naked_asm};
@@ -111,17 +111,6 @@ extern "C" fn cont(frame: IntStackFrame) {
     }
 }
 
-/// Triggers a kernel panic, never returns.
-macro_rules! panic_wrapper {
-    ($err: expr) => {{
-        extern "x86-interrupt" fn wrapper(frame: IntStackFrame) {
-            panic!("{}, {frame}", $err)
-        }
-
-        wrapper as *const () as Handler
-    }};
-}
-
 impl Idt {
     /// Creates a new, loaded table, with all it's required entries set.
     /// This function only creates an IDT, and doesn't load it.
@@ -130,16 +119,16 @@ impl Idt {
         let mut idt = Idt([InterruptDescriptor::default(); 256]);
 
         // A list of entry IDs can be found at: https://wiki.osdev.org/Exceptions
-        idt.set_handler(0, None, panic_wrapper!(0));
-        idt.set_handler(1, None, panic_wrapper!(1));
-        idt.set_handler(2, None, panic_wrapper!(2));
+        idt.set_handler(0, None, PANIC!(exception noerror c"DIVIDE ERROR"));
+        idt.set_handler(1, None, PANIC!(exception noerror c"DEBUG"));
+        idt.set_handler(2, None, PANIC!(exception noerror c"NMI")); // TODO: ignore or make cont_wrapper?
         idt.set_handler(3, None, cont_wrapper!(3, 0));
-        idt.set_handler(5, None, panic_wrapper!(5));
+        idt.set_handler(5, None, PANIC!(exception noerror c"OVERFLOW")); // should NEVER happen
         idt.set_handler(6, None, cont_wrapper!(6, 2));
-        idt.set_handler(7, None, panic_wrapper!(7));
+        idt.set_handler(7, None, PANIC!(exception noerror c"DEVICE NOT AVAILABLE"));
         idt.set_handler(8, Some(1), double_fault_handler as *const () as Handler);
-        idt.set_handler(13, None, gpf_handler as *const () as Handler);
-        idt.set_handler(14, None, page_fault_handler as *const () as Handler);
+        idt.set_handler(13, None, PANIC!(exception c"GP FAULT", gp_errcode));
+        idt.set_handler(14, None, PANIC!(exception c"PAGE FAULT", pf_errcode));
         idt.set_handler(IRQ_START + 0, None, timer_handler as *const () as Handler);
         idt.set_handler(IRQ_START + 1, None, kbd_wrapper as *const () as Handler);
         idt.set_handler(IRQ_START + 6, None, floppy_handler as *const () as Handler);
@@ -234,53 +223,43 @@ impl InterruptDescriptor {
 #[inline(never)]
 extern "x86-interrupt" fn dummy_handler(_frame: IntStackFrame) {}
 
-/// Returns `set` if the `bit`th bit in `code` is set, otherwise returns `clear`.
-fn bit_set(code: u64, bit: u64, set: &'static str, clear: &'static str) -> &'static str {
-    if code == code | 1 << bit { set } else { clear }
+/// Returns `true` if bit `bit` in `code` is set.
+fn bit_set(code: u64, bit: u64) -> bool {
+    code == code | 1 << bit
 }
 
-/// Ran when a page fault occurs.
-#[inline(never)]
-extern "x86-interrupt" fn page_fault_handler(frame: IntStackFrame, err_code: u64) {
-    let present = bit_set(err_code, 0, "Page-protection Violation", "Non-present page");
-    let causer = bit_set(err_code, 2, "User", "Privileged");
-    let addr: usize;
-    unsafe { asm!("mov {}, cr2", out(reg) addr) }
-
-    let rwrite = bit_set(err_code, 3, "Reserved write, ", "");
-    let instruction = bit_set(err_code, 4, "Instruction fetch, ", "");
-    let pkey = bit_set(err_code, 5, "Protection key, ", "");
-    let sstack = bit_set(err_code, 6, "Shadow stack", "");
-
-    panic!(
-        "PAGE FAULT
-      {frame}
-      Cause: {present} at address 0x{addr:x} by {causer}\n      Flags: {rwrite}{instruction}{pkey}{sstack}"
-    );
-}
-
-/// Ran when a general protection fault occurs.
-#[inline(never)]
-extern "x86-interrupt" fn gpf_handler(frame: IntStackFrame, err_code: u64) {
-    if err_code == 0 {
-        panic!("General protection fault\n      {frame}\n      Not segment related");
+/// Prints out page fault info based on `errcode`.
+fn pf_errcode(errcode: u64) {
+    let rw = if bit_set(errcode, 1) { "Wrote" } else { "Read" };
+    let cause = if bit_set(errcode, 0) {
+        "Page-protection Violation"
     } else {
-        // Reference: https://wiki.osdev.org/Exceptions#Selector_Error_Code
-        let external = bit_set(err_code, 0, "True", "False");
-        let idx = err_code >> 3;
-        let table = (err_code >> 1) & 0b11;
+        "Non-present page"
+    };
 
-        let descriptor = match table {
-            0b00 => "GDT",
-            0b01 | 0b10 => "IDT",
-            0b11 => "LDT",
-            _ => "Unknown", // this should never happen
-        };
+    let cr2: usize;
+    // Safety: Just reading from a register
+    unsafe { asm!("mov {}, cr2", out(reg) cr2) };
+    println!("Errcode: {rw} {cause} ({errcode:b})\nCR2: 0x{cr2:x}")
+}
 
-        panic!(
-            "General protection fault\n      {frame}\n      External: {external} | Descriptor: {descriptor} | Selector index: {idx}"
-        );
-    }
+/// Prints out general protection fault info based on `errcode`.
+#[rustfmt::skip]
+fn gp_errcode(errcode: u64) {
+    let ext = if bit_set(errcode, 0) {
+        "External"
+    } else {
+        "Non-external"
+    };
+    let null = if errcode & !1 == 0 { " null" } else { "" };
+    let idx = errcode >> 3; // segment selector idx
+    let gate = match (errcode >> 1) & 0b11 { // IDT & TI bits
+        0b00 => "GDT",
+        0b10 => "LDT",
+        _ => "IDT",
+    };
+
+    println!("Errcode: {ext}{null} in {gate} ({errcode:b})\nIndex: {idx}")
 }
 
 /// Ran when a double fault occurs.
@@ -421,8 +400,6 @@ mod tests {
     fn descriptors_point_to_handlers() {
         let idt = IDT.read().unwrap().0;
         assert_eq!(idt[8].ptr(),              double_fault_handler as *const () as Handler);
-        assert_eq!(idt[13].ptr(),             gpf_handler          as *const () as Handler);
-        assert_eq!(idt[14].ptr(),             page_fault_handler   as *const () as Handler);
         assert_eq!(idt[IRQ_START + 0].ptr(),  timer_handler   as *const () as Handler);
         assert_eq!(idt[IRQ_START + 1].ptr(),  kbd_wrapper     as *const () as Handler);
         assert_eq!(idt[IRQ_START + 6].ptr(),  floppy_handler  as *const () as Handler);

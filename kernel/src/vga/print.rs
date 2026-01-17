@@ -66,7 +66,7 @@ pub enum Color {
 /// - Bits 12-15 ~ Background [`color`](Color) (bit 15 is sometimes blink)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct VGAChar(u16);
+pub struct VGAChar(pub u16);
 
 impl VGAChar {
     /// The space character.
@@ -75,16 +75,6 @@ impl VGAChar {
     /// Constructs a new color using `fg` as the text color and `bg` as the background color.
     pub const fn new(char: u8, fg: Color, bg: Color) -> VGAChar {
         VGAChar((char as u16) | (bg as u16) << 12 | (fg as u16) << 8)
-    }
-
-    /// Returns a reference to `self` as an int.
-    pub const fn as_raw(&self) -> u16 {
-        self.0
-    }
-
-    /// Returns a mutable reference to `self` as an int.
-    pub const fn as_raw_mut(&mut self) -> &mut u16 {
-        &mut self.0
     }
 }
 

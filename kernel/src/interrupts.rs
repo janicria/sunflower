@@ -29,7 +29,7 @@
 */
 
 use crate::{exit_on_err, startup::ExitCode, time, vga::cursor};
-use core::{arch::asm, fmt::Display};
+use core::{arch::asm, ffi::c_void, fmt::Display};
 use idt::InterruptDescriptor;
 pub use keyboard::init as init_kbd;
 use libutil::{InitLater, LoadRegisterError, TableDescriptor};
@@ -54,10 +54,10 @@ pub struct Idt([InterruptDescriptor; 256]);
 #[derive(Debug, Default)]
 #[repr(C)]
 pub struct IntStackFrame {
-    ip: u64,
+    pub ip: u64,
     cs: u64,
     flags: u64,
-    sp: u64,
+    pub sp: *const c_void,
     ss: u64,
 }
 
@@ -65,7 +65,7 @@ impl Display for IntStackFrame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Stack frame for 0x{:x}: flags: {}\n      CS: {:x} | CP: {:x} | SS: {:x}",
+            "Stack frame for 0x{:x}: flags: {}\n      CS: {:x} | SP: {:?} | SS: {:x}",
             self.ip, self.flags, self.cs, self.sp, self.ss
         )
     }

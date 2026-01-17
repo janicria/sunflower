@@ -38,7 +38,7 @@ macro_rules! env_as_int {
     ($env: expr, $t: ty) => {
         match <$t>::from_str_radix(env!($env), 10) {
             Ok(v) => v,
-            Err(_) => panic!(concat!("Failed parsing env var ", $env)),
+            Err(_) => $crate::PANIC!(const concat!("Failed parsing env var ", $env)),
         }
     };
 }

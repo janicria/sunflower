@@ -99,7 +99,7 @@ pub fn set_waiting_char(show: bool) {
         return;
     }
 
-    const CHAR: u16 = VGAChar::new(1, Color::Black, Color::LightGrey).as_raw();
+    const CHAR: u16 = VGAChar::new(1, Color::Black, Color::LightGrey).0;
     static PREV: AtomicU16 = AtomicU16::new(0);
 
     let ptr = Corner::TopRight as usize as *mut u16;

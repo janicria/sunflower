@@ -8,17 +8,16 @@ It's versioning system is a little strange, with new releases following
 
 ## Features
 The latest version of Sunflower currently supports:
-- reading from and writing to floppy drives, with a filesystem coming soon
-- it's very own build tool, `seeder!`
-- a really cool library called `libfs`
-- a really boring library which needs major fixing called `libutil`
+- reading from and writing to floppy drives, with a filesystem coming soon,
+- it's very own build tool, `seeder!`,
+- some libraries which need major fixing,
 - basic screen printing using VGA Text Mode,
 - a semi-basic PS/2 keyboard driver for drawing some of your cool ASCII art,
 - some beeps and boops using the PC Speaker,
 - a rudimentary 100 Hz timer and hardware clock reader,
 - some [system commands](https://github.com/janicria/sunflower?tab=readme-ov-file#system-commands),
 - a really cool test framework,
-- and the most original crash screen there is
+- and a really nice kernel panic screen.
 
 ## Building
 Sunflower uses it's very own build tool, `seeder`, which requires [`Rust`](https://www.rust-lang.org/tools/install) to be installed, and can be run via `cargo sdr`. 
@@ -105,6 +104,5 @@ Ctrl+Alt+F7 / SysRq+F7 - Show help
 ## Screenshots
 
 ![Sunflower post boot screen](./screenshots/boot.png)
-![Kernel panic](./screenshots/panic.png)
+![Kernel panic](./screenshots/kpanic.png)
 ![System information syscmd](./screenshots/sysinfo.png)
-![Help screen](./screenshots/help.png)
