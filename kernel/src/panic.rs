@@ -59,10 +59,21 @@ use core::{
 #[macro_export]
 macro_rules! PANIC {
     (exception $cause:expr, $info:expr) => {{
-        #[allow(unused_imports)]
+        #[allow(unused)]
         extern "x86-interrupt" fn wrapper(stackframe: $crate::interrupts::IntStackFrame, errcode: u64) -> ! {
             use $crate::panic::kpanic;
             use core::ffi::c_char;
+
+            // The last test ran by tests::run_tests, checks that a stack overflow
+            // causes a page fault, so we need to exit running tests in it's handler
+            #[cfg(test)]
+            {
+                if $cause == c"PAGE FAULT" {
+                    println!("test stack overflow causes #PF - passed");
+                    println!("\nIt looks like you didn't break anything!");
+                    $crate::tests::exit_qemu(false);
+                }
+            }
 
             static mut IP: u64 = 0;
             static mut ERRCODE: u64 = 0;
@@ -112,16 +123,16 @@ macro_rules! PANIC {
     }};
 
     (badbug $($fmt:tt)+) => {{
-        let fmt = format_args!($($fmt)+);
         #[allow(unused)] // may be called from unsafe code or with existing imports
-        unsafe {
-            use core::{ffi::{c_void, c_char}, ptr::null, arch::asm, mem, fmt::Arguments};
+        use core::{ffi::{c_void, c_char}, ptr::null, arch::asm, mem, fmt::Arguments};
 
+        let rsp: *const c_void;
+        unsafe { asm!("cli", "mov {0}, rsp", out(reg) rsp) };
+        let fmt = format_args!($($fmt)+);
+
+        unsafe {
             static mut CAUSE:  *const c_char = null();
             static mut ARGUMENTS: Arguments = format_args!("");
-
-            let rsp: *const c_void;
-            asm!("cli", "mov {0}, rsp", out(reg) rsp);
 
             // Safety: Since PANIC! never returns, anything local passed to it will live forever
             ARGUMENTS = mem::transmute::<Arguments<'_>, Arguments<'static>>(fmt);
@@ -157,6 +168,7 @@ macro_rules! PANIC {
 /// # Safety
 /// This function should only be called via the [`PANIC`] macro.
 #[rustfmt::skip]
+#[cfg_attr(test, allow(unused))]
 #[unsafe(no_mangle)]
 pub unsafe extern "sysv64" fn kpanic(
     cause: *const c_char,
@@ -221,6 +233,10 @@ pub unsafe extern "sysv64" fn kpanic(
         valof(4),
         valof(5),
     );
+
+    #[cfg(test)] // tests fail by panicking, but we still want to print error info
+    crate::tests::exit_qemu(true);
+    
 
     // Loop waiting for kbd input
     print!("\nPress ESC to restart device");

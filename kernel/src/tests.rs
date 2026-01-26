@@ -72,9 +72,9 @@ pub fn run_tests(tests: &[&dyn Test]) -> ! {
     println!("\nRunning unit tests...");
     tests.iter().for_each(|f| f.test());
 
-    // Tests that stack overflows cause a double fault.
-    // Since this 'test' causes a double fault and prevents all other tests
-    // from being run, the double fault handler exits QEMU when running tests
+    // Tests that stack overflows cause a page fault.
+    // Since this 'test' causes a page fault and prevents all other tests
+    // from being run, PANIC! exits QEMU when hitting page faults in test builds
     loop {
         unsafe { asm!("push rax") }
     }

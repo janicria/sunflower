@@ -24,9 +24,9 @@
 */
 
 use crate::{
+    PANIC,
     ports::{self, Port},
     speaker,
-    PANIC,
     startup::{self, ExitCode},
     sysinfo::SystemInfo,
     vga::{
@@ -289,7 +289,9 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
         match key {
             KeyCode::F1 => print_sysinfo(),
             KeyCode::F3 => speaker::play_song(),
-            KeyCode::F4 => PANIC!(badbug "Triggered System Command 4 by pressing Ctrl+Alt+F4 or SysRq+F4"),
+            KeyCode::F4 => {
+                PANIC!(badbug "Triggered System Command 4 by pressing Ctrl+Alt+F4 or SysRq+F4")
+            }
             KeyCode::F5 => super::triple_fault(),
             KeyCode::F6 => buffers::swap(),
             KeyCode::F7 => print_help(),

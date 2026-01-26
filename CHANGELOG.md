@@ -1,5 +1,13 @@
 # Sunflower changelog
 
+## Development 18
+##### Kernel panic touchups 26/1/26
+
+- Gave page faults IST 1 (double fault emergency stack), meaning that stack overflows don't cause a double fault anymore!
+- Moved the `cli` and `rsp` in badbug to the top of the macro
+- Fixed tests which failed by panic not immediately exiting QEMU
+- Allowed handling of `ExitCode`s without running a startup task
+
 ## Development 17
 ##### PANIC! macro 17/1/26
 

@@ -25,8 +25,6 @@
 
 use super::{IRQ_START, Idt, IntStackFrame};
 use crate::{PANIC, gdt, vga::buffers};
-#[cfg(test)]
-use crate::{interrupts::IDT, tests::exit_qemu};
 use core::arch::{asm, naked_asm};
 use libutil::TableDescriptor;
 
@@ -128,7 +126,7 @@ impl Idt {
         idt.set_handler(7, None, PANIC!(exception noerror c"DEVICE NOT AVAILABLE"));
         idt.set_handler(8, Some(1), double_fault_handler as *const () as Handler);
         idt.set_handler(13, None, PANIC!(exception c"GP FAULT", gp_errcode));
-        idt.set_handler(14, None, PANIC!(exception c"PAGE FAULT", pf_errcode));
+        idt.set_handler(14, Some(1), PANIC!(exception c"PAGE FAULT", pf_errcode));
         idt.set_handler(IRQ_START + 0, None, timer_handler as *const () as Handler);
         idt.set_handler(IRQ_START + 1, None, kbd_wrapper as *const () as Handler);
         idt.set_handler(IRQ_START + 6, None, floppy_handler as *const () as Handler);
@@ -280,16 +278,6 @@ extern "C" fn double_fault_handler() -> ! {
 #[unsafe(no_mangle)]
 #[cfg_attr(test, allow(unused))]
 extern "C" fn print_df_info(frame: IntStackFrame) {
-    // The last test ran by tests::run_tests, checks that a stack overflow
-    // causes a double fault, so we need to exit running tests in it's handler
-    #[cfg(test)]
-    {
-        use core::any::type_name_of_val;
-        println!("test {} - passed", type_name_of_val(&double_fault_handler));
-        println!("\nIt looks like you didn't break anything!");
-        exit_qemu(false);
-    }
-
     // Safety: Whoever was holding that buffer is not going to be returned to anytime soon
     unsafe { buffers::BUFFER_HELD.store(false) }
     buffers::clear();
@@ -393,6 +381,7 @@ extern "C" fn rtc_ret() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::interrupts::IDT;
 
     /// Tests that various interrupt descriptors point to their respective handlers.
     #[test_case]

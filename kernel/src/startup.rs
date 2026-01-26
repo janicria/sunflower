@@ -84,7 +84,16 @@ where
     E: Display,
 {
     // Safety: The caller must ensure that the task is safe to run
-    match unsafe { task() } {
+    unsafe { handle_exitcode(name, task()) }
+}
+
+/// Handles [`ExitCode`] `exitcode`, printing it's result and hitting a
+/// `badbug` if `exitcode` is a [`ExitCode::Stop`].
+pub fn handle_exitcode<E>(name: &str, exitcode: ExitCode<E>)
+where
+    E: Display,
+{
+    match exitcode {
         ExitCode::Infallible => print_box(Color::Cyan, "INF", name),
         ExitCode::Ok => print_box(Color::Lime, "OK!", name),
         ExitCode::Error(e) => {

@@ -27,13 +27,7 @@
 #![test_runner(tests::run_tests)]
 #![reexport_test_harness_main = "tests"]
 #![forbid(static_mut_refs)] // clippy::undocumented_unsafe_blocks)]
-#![feature(
-    abi_x86_interrupt,
-    sync_unsafe_cell,
-    yeet_expr,
-    custom_test_frameworks,
-    trim_prefix_suffix
-)]
+#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks)]
 #![allow(
     clippy::unusual_byte_groupings,
     clippy::deref_addrof,
