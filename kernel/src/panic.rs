@@ -206,7 +206,7 @@ pub unsafe extern "sysv64" fn kpanic(
         sysinfo.time,
         sysinfo.debug as u8,
         PANICS.fetch_add(1, Ordering::Relaxed),
-        sysinfo.sfk_version_short
+        sysinfo.sfk_version
     );
     print!(
         "Hardware: {} {} ",

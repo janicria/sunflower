@@ -297,7 +297,7 @@ fn system_command(key: KeyCode, kbd: &Modifiers) {
             KeyCode::F7 => print_help(),
             KeyCode::F2 => {
                 buffers::clear();
-                vga::draw_topbar("Empty buf");
+                vga::draw_topbar();
             }
             _ => (),
         }
@@ -309,7 +309,7 @@ fn print_sysinfo() {
     // Store prev buffer in alt
     buffers::swap();
     buffers::clear();
-    vga::draw_topbar(" SysInfo ");
+    vga::draw_topbar();
 
     println!(fg = LightBlue, "\nSystem information");
     print!("{}", SystemInfo::now());
@@ -325,7 +325,7 @@ fn print_help() {
     // Store prev buffer in alt
     buffers::swap();
     buffers::clear();
-    vga::draw_topbar("   Help  ");
+    vga::draw_topbar();
 
     println!(fg = Pink, "\nWelcome to Sunflower!! \u{1}");
 

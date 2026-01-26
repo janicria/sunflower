@@ -120,8 +120,7 @@ fn get_cpuid() -> Option<&'static str> {
 /// Information about the system gathered from across the kernel.
 pub struct SystemInfo {
     // Sunflower version
-    pub sfk_version_long: &'static str,
-    pub sfk_version_short: &'static str,
+    pub sfk_version: &'static str,
     pub patch_quote: &'static str,
 
     // Actually important info
@@ -162,8 +161,7 @@ impl SystemInfo {
 
         SystemInfo {
             // Version env vars passed via build script
-            sfk_version_long: env!("SFK_VERSION_LONG"),
-            sfk_version_short: env!("SFK_VERSION_SHORT"),
+            sfk_version: env!("SFK_VERSION"),
             patch_quote: env!("SFK_PATCH_QUOTE"),
 
             cpu_vendor: get_cpuid().unwrap_or("Unknown"),
@@ -203,7 +201,7 @@ impl Display for SystemInfo {
 CPU Vendor: {}
 Debug build: {}
 Launch time: ",
-            self.sfk_version_long, self.cpu_vendor, self.debug,
+            self.sfk_version, self.cpu_vendor, self.debug,
         )?;
 
         // Write launch time

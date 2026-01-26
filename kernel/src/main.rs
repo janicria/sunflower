@@ -83,7 +83,7 @@ pub unsafe extern "C" fn kmain() -> ! {
     #[cfg(test)]
     tests();
 
-    vga::draw_topbar("Sunflower");
+    vga::draw_topbar();
     println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
     vga::cursor::update_visual_pos();
     speaker::play_chime();

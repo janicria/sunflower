@@ -1,15 +1,18 @@
 # This file is used by sunflower's build script to determine the kernel & floppyfs version
 
 [kernel]
-# The current version of the sunflower kernel.
-version_long = "SFK-00-Development-18"
+# The major version of the kernel.
+version_major = "0"
 
-# A shortened version of the kernel's version.
-version_short = "SFK-Dev-18"
+# The minor version of the kernel, see CHANGELOG.md for when to increment this.
+version_minor = "2"
+
+# The minor version's patch, increment after every source code change.
+version_patch = "1"
 
 # Message updated each patch & displayed on the topbar.
-# Must be exactly 11 characters.
-patch_quote = "MORE PANIC!"
+# Must be less than 15 characters in length.
+patch_quote = "longer msgs!!"
 
 #  When the filesystem driver was last updated in UTC
 [floppyfs]

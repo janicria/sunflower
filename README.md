@@ -2,27 +2,22 @@
 
 Sunflower is a low scale kernel made by me just for fun. It usually manages to not crash most of the time <3
 
-It's versioning system is a little strange, with new releases following 
-
-`SFK-<version>-<version-name>-<patch>`
-
 ## Features
 The latest version of Sunflower currently supports:
 - reading from and writing to floppy drives, with a filesystem coming soon,
 - it's very own build tool, `seeder!`,
-- some libraries which need major fixing,
-- basic screen printing using VGA Text Mode,
+- a really nice kernel panic screen,
+- basic text printing,
 - a semi-basic PS/2 keyboard driver for drawing some of your cool ASCII art,
 - some beeps and boops using the PC Speaker,
-- a rudimentary 100 Hz timer and hardware clock reader,
-- some [system commands](https://github.com/janicria/sunflower?tab=readme-ov-file#system-commands),
+- a rudimentary 100 Hz timer and RTC reader,
 - a really cool test framework,
-- and a really nice kernel panic screen.
+- and some libraries which need major reworks.
 
 ## Building
 Sunflower uses it's very own build tool, `seeder`, which requires [`Rust`](https://www.rust-lang.org/tools/install) to be installed, and can be run via `cargo sdr`. 
 
-Once you've installed rust you can just run the following commands to build a bootimage image of sunflower, which should appear at `sunflower.bin` 
+Once you've installed rust you can just run the following commands to build a bootable image of sunflower, which should appear at `sunflower.bin` 
 ```
 git clone https://github.com/janicria/sunflower.git
 cd sunflower
@@ -72,14 +67,14 @@ cargo sdr did-i-break-anything
 ````
 
 ### Real hardware
-WARNING: Sunflower is not fully tested and may cause **damages** to your device if you try to run it on your device. I do not hold any responsibility for **anything** that may occur if you decide to do this, you are at your own risk.
+WARNING: Sunflower is incomplete and may cause **damages** to your device if you try to run it on real hardware. You are at your own risk if you decide to do this.
 
 However, if you'd like to run sunflower anyway on an x86 computer you can run:
 ```
 cargo sdr build
 sudo dd if=sunflower.bin of=/dev/DEVICE && sync
 ```
-replacing `DEVICE` with the drive you want to write sunflower to (usually `sda` or `sdb` for USBs). This will **WIPE EVERYTHING** on that drive, so think before running the command and double check you put in the **right device name**.
+replacing `DEVICE` with the drive you want to write sunflower to (usually `sda` or `sdb` for USBs). This will **WIPE EVERYTHING** on that drive, so please think before running the command.
 
 You'll also need to enable the Legacy BIOS Boot option in your device's BIOS, and might have to change your boot order to boot into sunflower.
 

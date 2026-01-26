@@ -124,6 +124,4 @@ pub fn swap() {
             ptr::copy_nonoverlapping(&raw const TMP, BUFFER, 1);
         }
     }
-
-    super::draw_topbar(" Alt Buf ");
 }

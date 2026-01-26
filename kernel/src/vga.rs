@@ -63,33 +63,20 @@ pub unsafe fn init() -> ExitCode<Infallible> {
     ExitCode::Infallible
 }
 
-/// Draws the topbar with `title` as it's title.
-/// Title must be exactly 9 bytes long.
-pub fn draw_topbar(title: &'static str) {
-    let len = title.len();
-
-    // Force title to be nine bytes
-    if len != 9 {
-        warn!(
-            "attempted setting topbar title with an invalid len ({len}), it will be truncated or discarded to preserve formatting!"
-        );
-    }
-    let title = title.split_at_checked(9).unwrap_or(("Bad Title", "")).0;
-
+/// Draws the topbar, ran every second by [`crate::interrupts::kbd_poll_loop`].
+pub fn draw_topbar() {
     // Print at the top left corner
     let (prev_row, prev_col) = CursorPos::row_col();
     ALLOW_ROW_0.store(true, Ordering::Relaxed);
     CursorPos::set_row(0);
     CursorPos::set_col(0);
 
-    // Do the printing
     let sysinfo = SystemInfo::now();
     print!(
         fg = Black,
         bg = LightGrey,
-        " {} on {} | {title} | Help: SysRq / PrntScr F7 | {}",
-        sysinfo.sfk_version_short,
-        sysinfo.cpu_vendor,
+        "                  | Sunflower {:#6} | Help: SysRq / PrntScr F7 | {:#14}",
+        sysinfo.sfk_version,
         sysinfo.patch_quote
     );
 

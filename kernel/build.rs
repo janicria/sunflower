@@ -17,8 +17,9 @@ pub struct Version {
 /// The kernel's version fields.
 #[derive(Deserialize)]
 pub struct Kernel {
-    version_long: String,
-    version_short: String,
+    version_major: String,
+    version_minor: String,
+    version_patch: String,
     patch_quote: String,
 }
 
@@ -33,15 +34,15 @@ pub struct FloppyFs {
 #[rustfmt::skip]
 fn main() -> Result<(), ParseVersionError> {
     let buf = fs::read(VERSION)?;
-    let version: Version = toml::from_slice(&buf)?;
+    let v: Version = toml::from_slice(&buf)?;
+    let version_fmt = format!("{}.{}.{}", v.kernel.version_major, v.kernel.version_minor, v.kernel.version_patch);
     let century = Local::now().year() / 100;
     
     println!("cargo::rerun-if-changed={VERSION}");
-    println!("cargo::rustc-env=SFK_VERSION_LONG={}", version.kernel.version_long);
-    println!("cargo::rustc-env=SFK_VERSION_SHORT={}", version.kernel.version_short);
-    println!("cargo::rustc-env=SFK_PATCH_QUOTE={}", version.kernel.patch_quote);
-    println!("cargo::rustc-env=SFK_FLOPPYFS_YEAR={}", version.floppyfs.year);
-    println!("cargo::rustc-env=SFK_FLOPPYFS_DAY={}", version.floppyfs.day);
+    println!("cargo::rustc-env=SFK_VERSION={}", version_fmt);
+    println!("cargo::rustc-env=SFK_PATCH_QUOTE={}", v.kernel.patch_quote);
+    println!("cargo::rustc-env=SFK_FLOPPYFS_YEAR={}", v.floppyfs.year);
+    println!("cargo::rustc-env=SFK_FLOPPYFS_DAY={}", v.floppyfs.day);
     println!("cargo::rustc-env=SFK_TIME_CENTURY={}", century);
 
     Ok(())
