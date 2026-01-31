@@ -30,9 +30,10 @@ use libutil::TableDescriptor;
 
 type Handler = u64;
 
-/// Pushes all registers which need to be saved before calling C ABI functions.
-macro_rules! pushregs {
+/// Prepares interrupt handlers for calling extern "sysv64" functions.
+macro_rules! savestate {
     () => {
+        // store caller-saved regs
         "push rdi
         push rax
         push rcx
@@ -41,13 +42,15 @@ macro_rules! pushregs {
         push r8
         push r9
         push r10
-        push r11"
+        push r11
+        lock inc byte ptr int_handler_count" // prevent cont access
     };
 }
 
-/// Pops all registers which need to be saved before calling C ABI functions.
-macro_rules! popregs {
+/// Restores the system's state after a invocation of [`savestate!`].
+macro_rules! restore_state {
     () => {
+        // restore caller-saved regs
         "pop r11
         pop r10
         pop r9
@@ -56,22 +59,23 @@ macro_rules! popregs {
         pop rdx
         pop rcx
         pop rax
-        pop rdi"
+        pop rdi
+        lock dec byte ptr int_handler_count" // (maybe) re-allow cont access
     };
 }
 
 /// Calls cont, increases the return address, then returns from the interrupt.
 macro_rules! cont_wrapper {
-    ($err: expr, $inc: expr) => {{
+    ($errcode: expr, $inc: expr) => {{
         #[unsafe(naked)]
         extern "C" fn wrapper() -> ! {
             naked_asm!(
-                pushregs!(),                            // save state before calling cont
-                concat!("mov word ptr ERR_CODE, ", stringify!($err)), // err code
+                savestate!(),                            // save state for cont
+                concat!("mov word ptr ERR_CODE, ", stringify!($errcode)),
                 "mov rdi, rsp",                         // store stack frame in first arg
-                "add rdi, 9*8",                         // offset the 9 registers just got pushed
+                "add rdi, 9*8",                         // offset the 9 registers that just got pushed
                 "call cont",
-                popregs!(),                             // restore state now that cont has finished
+                restore_state!(),
                 concat!("add qword ptr [rsp], ", $inc), // increase return address to not get in an infinite cycle
                 "iretq"
             )
@@ -84,7 +88,7 @@ macro_rules! cont_wrapper {
 /// Prints the error passed by the wrapper.
 #[unsafe(no_mangle)]
 #[cfg_attr(test, allow(unused_variables))]
-extern "C" fn cont(frame: IntStackFrame) {
+extern "sysv64" fn cont(frame: IntStackFrame) {
     #[unsafe(no_mangle)]
     static mut ERR_CODE: ErrCode = ErrCode::Invalid;
 
@@ -292,12 +296,12 @@ Since double faults are pretty nasty, sunflower can't trust any kernel services 
 #[unsafe(naked)]
 extern "C" fn timer_handler() -> ! {
     naked_asm!(
-        pushregs!(),
+        savestate!(),                 // save for dec_floppy_motor_time & eoi
         "lock inc qword ptr [TIME]",  // increase time
-        "call dec_floppy_motor_time", // in floppy.rs
-        "mov rdi, 0",                 // timer IRQ as first argument
+        "call dec_floppy_motor_time", // in floppy/motor.rs
+        "mov rdi, 0",                 // timer IRQ as first arg
         "call eoi",
-        popregs!(),
+        restore_state!(),
         "iretq",
     );
 }
@@ -306,11 +310,11 @@ extern "C" fn timer_handler() -> ! {
 #[unsafe(naked)]
 extern "C" fn kbd_wrapper() -> ! {
     naked_asm!(
-        pushregs!(),
-        "call kbd_handler", // Safety: it's safe to read from port 0x60 in the key pressed interrupt
-        "mov rdi, 1",       // key pressed IRQ as first argument
+        savestate!(),       // save state for kbd_handler & eoi
+        "call kbd_handler", // in interrupts/keyboard.rs (for now...)
+        "mov rdi, 1",       // key pressed IRQ as first arg
         "call eoi",         // send eoi command
-        popregs!(),
+        restore_state!(),
         "iretq",
     );
 }
@@ -319,25 +323,25 @@ extern "C" fn kbd_wrapper() -> ! {
 #[unsafe(naked)]
 extern "C" fn floppy_handler() -> ! {
     naked_asm!(
-        pushregs!(),
+        // TODO: just mask this?
+        savestate!(), // save state for eoi
         "mov rdi, 6", // floppy IRQ as first argument
         "call eoi",
-        popregs!(),
+        restore_state!(),
         "iretq",
     );
 }
 
-/// Flag set by the RTC handler when the RTC finishes updating.
-#[unsafe(no_mangle)]
-static mut RTC_UPDATE_ENDED: u8 = 0;
-
 /// Ran when the RTC generates an interrupt
 #[unsafe(naked)]
 extern "C" fn rtc_handler() -> ! {
+    #[unsafe(no_mangle)]
+    static mut RTC_UPDATE_ENDED: u8 = 0;
+
     naked_asm!(
         "push dx", // backup regs
         "push ax",
-        pushregs!(),
+        savestate!(),
         "cmp byte ptr [RTC_UPDATE_ENDED], 1", // check if the update ended int has been sent
         "je rtc_ret",                         // if so, cancel all future interrupts
         "mov dx, 0x70",                       // cmos register selector
@@ -349,33 +353,21 @@ extern "C" fn rtc_handler() -> ! {
         "or ah, 16",                          // set bit 4
         "cmp al, ah",                         // if they're the same, bit 4 is set
         "je update_ended",                    // if so, set the RTC_UPDATE_ENDED flag
-        "jmp rtc_ret"                         // if not return from the interrupt
-    );
-}
-
-/// Ran when the RTC sends an update ended interrupt.
-#[unsafe(naked)]
-#[unsafe(no_mangle)]
-extern "C" fn update_ended() {
-    naked_asm!(
+        "jmp rtc_ret",                        // if not return from the interrupt
+        /* update_ended */
+        "update_ended:",
         "mov byte ptr [RTC_UPDATE_ENDED], 1", // set update ended flag to disable future interrupts
         "call sync_time_to_rtc",              // in time.rs
-        "jmp rtc_ret"                         // return from interrupt
-    )
-}
-
-/// Returns from the RTC handler.
-#[unsafe(naked)]
-#[unsafe(no_mangle)]
-extern "C" fn rtc_ret() {
-    naked_asm!(
-        "mov rdi, 8", // RTC IRQ as first argument
-        "call eoi",   // send eoi cmd
-        popregs!(),   // restore regs
-        "pop ax",
+        "jmp rtc_ret",                        // return from interrupt
+        /* rtc_ret */
+        "rtc_ret:",
+        "mov rdi, 8", // RTC IRQ as first arg
+        "call eoi",
+        restore_state!(), // restore regs
+        "pop ax",         // restore regs
         "pop dx",
         "iretq" // return from int
-    )
+    );
 }
 
 #[cfg(test)]

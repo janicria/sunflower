@@ -100,7 +100,7 @@ pub fn force_disable() {
 /// Decreases the time until the motor will be disabled.
 /// Called by the timer handler every 10 ms.
 #[unsafe(export_name = "dec_floppy_motor_time")]
-pub extern "C" fn decrease_motor_time() {
+pub extern "sysv64" fn decrease_motor_time() {
     /// Drive 0's motor off, IRQs & DMA off, drive 0.
     /// [`Reference`](https://wiki.osdev.org/Floppy_Disk_Controller#DOR_bitflag_definitions)
     static DRIVE0_COMMAND: u8 = 0b00_0_1_00;

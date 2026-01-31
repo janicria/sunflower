@@ -35,7 +35,7 @@ const SECONDARY_OFFSET: u8 = 8;
 
 /// Sends the EOI command to the corresponding PIC.
 #[unsafe(no_mangle)]
-pub extern "C" fn eoi(irq: u8) {
+pub extern "sysv64" fn eoi(irq: u8) {
     /// Command sent to a PIC to tell it that the interrupt's over.
     const EOI_COMMAND: u8 = 0b100000;
 

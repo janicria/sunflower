@@ -35,6 +35,7 @@ pub use keyboard::init as init_kbd;
 use libutil::{InitLater, LoadRegisterError, TableDescriptor};
 pub use pic::init as init_pic;
 
+pub mod cont_access;
 mod idt;
 mod keyboard;
 mod pic;

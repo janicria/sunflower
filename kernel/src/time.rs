@@ -84,7 +84,7 @@ pub fn set_timer_interval() -> ExitCode<&'static str> {
 /// Returns how many ticks the kernel has been running for.
 /// Increases every 10 ms or 100 Hz.
 #[unsafe(naked)]
-pub extern "C" fn get_time() -> u64 {
+pub extern "sysv64" fn get_time() -> u64 {
     /// The current time
     #[unsafe(no_mangle)]
     static mut TIME: u64 = 0;
@@ -256,7 +256,7 @@ pub enum RtcSyncWaitError {
 /// Ran by RTC handler when the update ended interrupt occurs.
 /// [`Reference`](https://wiki.osdev.org/CMOS#The_Real-Time_Clock)
 #[unsafe(no_mangle)]
-extern "C" fn sync_time_to_rtc() {
+extern "sysv64" fn sync_time_to_rtc() {
     /// The 24 hour time / 12 hour time flag in the hours value.
     static TWENTY_FOUR_HR_FLAG: u8 = 0b10000000;
 

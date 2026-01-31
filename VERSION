@@ -12,7 +12,7 @@ version_patch = "1"
 
 # Message updated each patch & displayed on the topbar.
 # Must be less than 15 characters in length.
-patch_quote = "longer msgs!!"
+patch_quote = "accessiscont!"
 
 #  When the filesystem driver was last updated in UTC
 [floppyfs]
