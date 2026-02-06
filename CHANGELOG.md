@@ -2,6 +2,13 @@
 
 Each release of sunflower has it's own MAJOR, MINOR and PATCH version numbers, formatted as MAJOR.MINOR.PATCH. The PATCH number is incremented after every update to sunflower's source code. While the MINOR number is only incremented after a new feature of the kernel has reached stabilization, meaning that it isn't an under development, work-in-progress addition to the kernel anymore.
 
+#### 0.2.2 - Fix everything ContAccess 6/2/26
+
+There's a reason that ContAccess was left unused after the last patch...
+
+- made CA's actually usable & safe
+- fixed savestate! & restore_state! incrementing int_handler_count as a byte instead of a dword
+
 #### 0.2.1 - ContAccess type 31/1/26
 
 - Added the ContAccess type, it's currently unused, but'll be very important later

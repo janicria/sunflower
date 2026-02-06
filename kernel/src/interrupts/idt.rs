@@ -43,7 +43,7 @@ macro_rules! savestate {
         push r9
         push r10
         push r11
-        lock inc byte ptr int_handler_count" // prevent cont access
+        lock inc dword ptr int_handler_count" // prevent cont access
     };
 }
 
@@ -60,7 +60,7 @@ macro_rules! restore_state {
         pop rcx
         pop rax
         pop rdi
-        lock dec byte ptr int_handler_count" // (maybe) re-allow cont access
+        lock dec dword ptr int_handler_count" // (maybe) re-allow cont access
     };
 }
 
