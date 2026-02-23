@@ -27,11 +27,11 @@
 #![test_runner(tests::run_tests)]
 #![reexport_test_harness_main = "tests"]
 #![forbid(static_mut_refs)] // clippy::undocumented_unsafe_blocks)]
-#![feature(abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks)]
+#![feature(
+      abi_x86_interrupt, sync_unsafe_cell, yeet_expr, custom_test_frameworks
+)]
 #![allow(
-    clippy::unusual_byte_groupings,
-    clippy::deref_addrof,
-    clippy::identity_op
+      clippy::unusual_byte_groupings, clippy::deref_addrof, clippy::identity_op
 )]
 
 #[macro_use]
@@ -47,58 +47,62 @@ mod speaker;
 mod startup;
 #[macro_use]
 mod sysinfo;
-#[cfg(test)]
-mod tests;
+#[cfg(test)] mod tests;
 mod time;
 
-// Warn anyone just running `cargo build` to use seeder tool
+// Warn anyone just running `cargo build` to just use seeder
 #[cfg(any(debug_assertions, not(feature = "bootimage")))]
 compile_error!(
-    "Please build sunflower using seeder, run `cargo sdr help` in the main sunflower directory for help"
+      "Please build sunflower using seeder, run `cargo sdr help` \
+      in the main sunflower directory for help"
 );
 
 /// The kernel entry point.
 /// # Safety
 /// Please don't run the kernel twice.
 #[unsafe(export_name = "_start")]
+#[rustfmt::skip]
 pub unsafe extern "C" fn kmain() -> ! {
-    // Safety: Considering that this is the kernel entry point,
-    // I'm pretty sure these startup tasks are only being ran once
-    unsafe {
-        startup::run("Connected VGA", vga::init);
-        startup::run("Loaded IDT", interrupts::load_idt);
-        startup::run("Prepared TSS load", gdt::setup_tss);
-        startup::run("Loaded GDT", gdt::load_gdt);
-        startup::run("Finished TSS load", gdt::load_tss);
-        startup::run("Initialised PIC", interrupts::init_pic);
-        startup::run("Prepared RTC sync", time::setup_rtc_int);
-        startup::run("Set PIT frequency", time::set_timer_interval);
-        startup::run("Initialised keyboard", interrupts::init_kbd);
-        startup::run("Checked CPUID", sysinfo::check_cpuid);
-        startup::run("Finished RTC sync", time::wait_for_rtc_sync);
-        startup::run("Initialised floppy drive", floppy::init_wrapper);
-        startup::run("Initialised floppyfs", floppy::floppyfs::init_floppyfs);
-    }
+      // Safety: Considering that this is the kernel entry point,
+      // I'm pretty sure these startup tasks are only being ran once
+      unsafe {
+            startup::run("Connected VGA", vga::init);
+            startup::run("Loaded IDT", interrupts::load_idt);
+            startup::run("Prepared TSS load", gdt::setup_tss);
+            startup::run("Loaded GDT", gdt::load_gdt);
+            startup::run("Finished TSS load", gdt::load_tss);
+            startup::run("Initialised PIC", interrupts::init_pic);
+            startup::run("Prepared RTC sync", time::setup_rtc_int);
+            startup::run("Set PIT frequency", time::set_timer_interval);
+            startup::run("Initialised keyboard", interrupts::init_kbd);
+            startup::run("Checked CPUID", sysinfo::check_cpuid);
+            startup::run("Finished RTC sync", time::wait_for_rtc_sync);
+            startup::run("Initialised floppy drive", floppy::init_wrapper);
+            startup::run("Initialised floppyfs",floppy::floppyfs::init_floppyfs);
+      }
 
-    #[cfg(test)]
-    tests();
+      #[cfg(test)]
+      tests();
 
-    vga::draw_topbar();
-    println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
-    vga::cursor::update_visual_pos();
-    speaker::play_chime();
-    interrupts::kbd_poll_loop()
+      vga::draw_topbar();
+      println!(fg = Green, "\nAll startup tasks completed! \u{1}\n");
+      vga::cursor::update_visual_pos();
+      speaker::play_chime();
+      interrupts::kbd_poll_loop()
 }
 
 /// Hangs forever, never returning.
 /// Only use this when you have to.
 #[unsafe(no_mangle)]
 #[unsafe(naked)]
+#[rustfmt::skip]
 extern "C" fn hang() -> ! {
-    core::arch::naked_asm!(
-        "cli",                         // disable ints to make sure nothing else is run
-        "mov rbx, 0xDeadDeadDeadDead", // pseudo error message which can be viewed in QEMU
-        "hlt",                         // save power by halting
-        "jmp hang"                     // halt can get bypassed by a NMI or System Management Mode
-    )
+      core::arch::naked_asm!(
+            "cli",                         // ensure nothing else is ran
+            "mov rbx, 0xDeadDeadDeadDead", // pseudo error message
+                                           // which can be viewed in QEMU
+            "hlt",
+            "jmp hang"                     // hlt can get bypassed by a NMI
+                                           // or System Management Mode
+      )
 }

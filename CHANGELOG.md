@@ -2,6 +2,14 @@
 
 Each release of sunflower has it's own MAJOR, MINOR and PATCH version numbers, formatted as MAJOR.MINOR.PATCH. The PATCH number is incremented after every update to sunflower's source code. While the MINOR number is only incremented after a new feature of the kernel has reached stabilization, meaning that it isn't an under development, work-in-progress addition to the kernel anymore.
 
+#### 0.2.3 - Configure rustfmt 23/2/26
+
+- Added .rustfmt.toml to config rustfmt
+- Touched up some code to work with the new rustfmt config
+- Redid the help syscmd text
+- Fixed startup tasks returning STOP printing their error code
+  above the badbug instead of within it
+
 #### 0.2.2 - Fix everything ContAccess 6/2/26
 
 There's a reason that ContAccess was left unused after the last patch...

@@ -8,11 +8,11 @@ version_major = "0"
 version_minor = "2"
 
 # The minor version's patch, increment after every source code change.
-version_patch = "2"
+version_patch = "3"
 
 # Message updated each patch & displayed on the topbar.
 # Must be less than 15 characters in length.
-patch_quote = "CA > Exmap"
+patch_quote = "now formatted!"
 
 #  When the filesystem driver was last updated in UTC
 [floppyfs]

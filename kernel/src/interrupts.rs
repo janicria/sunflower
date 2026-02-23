@@ -22,18 +22,25 @@
     The interrupts module handles exceptions and irqs.
     This file is responsible for nothing really :(
 
-    Contains 3 submodules:
+    Contains 4 submodules:
+    * cont_access.rs - Defines the `ContAccess` type.
     * idt.rs - Handles loading the IDT and it's handlers
-    * keyboard.rs - PS/2 keyboard driver, TODO: move out of the interrupts module
+    * keyboard.rs - PS/2 keyboard driver, TODO: move out of interrupts module
     * pic.rs - Initialises the PICs
 */
 
-use crate::{exit_on_err, startup::ExitCode, time, vga::cursor};
-use core::{arch::asm, ffi::c_void, fmt::Display};
+use core::arch::asm;
+use core::ffi::c_void;
+use core::fmt::Display;
+
 use idt::InterruptDescriptor;
 pub use keyboard::init as init_kbd;
 use libutil::{InitLater, LoadRegisterError, TableDescriptor};
 pub use pic::init as init_pic;
+
+use crate::startup::ExitCode;
+use crate::vga::cursor;
+use crate::{exit_on_err, time};
 
 pub mod cont_access;
 mod idt;
@@ -41,7 +48,7 @@ mod keyboard;
 mod pic;
 
 /// Where IRQ vectors start in the IDT.
-static IRQ_START: usize = 32;
+const IRQ_START: usize = 32;
 
 /// The loaded IDT.
 pub static IDT: InitLater<Idt> = InitLater::uninit();
@@ -55,21 +62,22 @@ pub struct Idt([InterruptDescriptor; 256]);
 #[derive(Debug, Default)]
 #[repr(C)]
 pub struct IntStackFrame {
-    pub ip: u64,
-    cs: u64,
-    flags: u64,
-    pub sp: *const c_void,
-    ss: u64,
+      pub ip: u64,
+      cs:     u64,
+      flags:  u64,
+      pub sp: *const c_void,
+      ss:     u64,
 }
 
 impl Display for IntStackFrame {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "Stack frame for 0x{:x}: flags: {}\n      CS: {:x} | SP: {:?} | SS: {:x}",
-            self.ip, self.flags, self.cs, self.sp, self.ss
-        )
-    }
+      fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(
+                  f,
+                  "Stack frame for 0x{:x}: flags: {}\n      CS: {:x} \
+                  | SP: {:?} | SS: {:x}",
+                  self.ip, self.flags, self.cs, self.sp, self.ss
+            )
+      }
 }
 
 /// Loads the IDT into the `IDT` static.
@@ -77,100 +85,105 @@ impl Display for IntStackFrame {
 /// # Safety
 /// Only run this once, early into startup.
 pub unsafe fn load_idt() -> ExitCode<LoadRegisterError<Idt>> {
-    let idt = exit_on_err!(IDT.init(Idt::new()), Stop);
-    dbg_info!("IDT loaded at 0x{:x}", idt as *const Idt as u64);
+      let idt = exit_on_err!(IDT.init(Idt::new()), Stop);
+      dbg_info!("IDT loaded at 0x{:x}", idt as *const Idt as u64);
 
-    // Safety: Using properly filled out IDT.
-    let loaded_idt = unsafe { idt.load() };
+      // Safety: Using properly initialised IDT.
+      let loaded_idt = unsafe { idt.load() };
 
-    // Return Err if sidt (store IDT) != descriptor passed to lidt
-    if idt_register() != loaded_idt {
-        return ExitCode::Stop(LoadRegisterError::Store("IDT"));
-    }
+      if idt_register() != loaded_idt {
+            return ExitCode::Stop(LoadRegisterError::Store("IDT"));
+      }
 
-    ExitCode::Ok
+      ExitCode::Ok
 }
 
 /// Returns the current value in the IDT register.
 pub fn idt_register() -> TableDescriptor<Idt> {
-    let mut idt = TableDescriptor::invalid();
-    // Safety: We're just storing a value
-    unsafe { asm!("sidt [{}]", in(reg) (&mut idt), options(preserves_flags, nostack)) };
-    idt
+      let mut idt = TableDescriptor::invalid();
+      // Safety: Just storing a value
+      unsafe {
+            asm!("sidt [{}]", in(reg) (&mut idt),
+            options(preserves_flags, nostack))
+      };
+      idt
 }
 
 /// Repeatedly loops polling the keyboard.
 pub fn kbd_poll_loop() -> ! {
-    loop {
-        keyboard::poll_keyboard();
+      loop {
+            keyboard::poll_keyboard();
 
-        // Repeatedly busy waiting for a new key to be pressed is stupidly inefficient,
-        // since the PIT fires an interrupt every ms anyway, why not just hlt after each poll?
-        unsafe { asm!("hlt") }
+            // Safety: Since the PIT fires an interrupt every
+            // ms anyway, why not just hlt after each poll?
+            unsafe { asm!("hlt") }
 
-        // Update the cursor every 100 ms
-        if time::get_time().is_multiple_of(10) {
-            cursor::update_visual_pos();
-        }
-    }
+            if time::get_time().is_multiple_of(10) {
+                  cursor::update_visual_pos(); // updates every 100 ms
+            }
+      }
 }
 
 /// Waits for the user to type either `y` or `n`.
 ///
 /// Loops forever if the keyboard failed to initialise.
 pub fn kbd_wait_for_response(prompt: &str, enter_eq_y: bool) -> bool {
-    if enter_eq_y {
-        print!("{prompt}? [Y/n] ");
-    } else {
-        print!("{prompt}? [y/N] ")
-    }
+      if enter_eq_y {
+            print!("{prompt}? [Y/n] ");
+      } else {
+            print!("{prompt}? [y/N] ")
+      }
 
-    cursor::update_visual_pos();
-    let result = keyboard::wait_for_response(enter_eq_y);
-    if result {
-        println!("y");
-    } else {
-        println!("n")
-    }
-    result
+      cursor::update_visual_pos();
+      let result = keyboard::wait_for_response(enter_eq_y);
+      if result {
+            println!("y");
+      } else {
+            println!("n")
+      }
+      result
 }
 
 /// Sets external interrupts.
 pub fn sti() {
-    unsafe { asm!("sti") }
+      unsafe { asm!("sti") }
 }
 
 /// Clears external interrupts.
 pub fn cli() {
-    unsafe { asm!("cli") }
+      unsafe { asm!("cli") }
 }
 
 /// Halts the CPU.
 pub fn hlt() {
-    // Safety: Just halting
-    unsafe { asm!("hlt") }
+      // Safety: Just halting
+      unsafe { asm!("hlt") }
 }
 
 /// Causes a triple fault.
 /// Can be used as the stupidest way ever to restart the device.
 pub fn triple_fault() {
-    // Safety: We're deliberately being very unsafe here
-    unsafe {
-        let descriptor = TableDescriptor::<Idt>::invalid();
-        asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax)); // load invalid descriptor
-        asm!("int 0x42") //  gpf -> double fault -> triple fault
-    }
+      // Safety: We're deliberately being very unsafe here
+      unsafe {
+            let descriptor = TableDescriptor::<Idt>::invalid();
+            asm!("lidt ({0})", in(reg) &descriptor, options(att_syntax));
+            asm!("int 0x42") //  gpf -> double fault -> triple fault
+      }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+      use super::*;
 
-    /// Tests that various structs passed to the CPU are the size that the CPU expects them.
-    #[test_case]
-    fn structs_have_the_right_size() {
-        assert_eq!(size_of::<IntStackFrame>(), 40);
-        assert_eq!(size_of::<InterruptDescriptor>(), 16);
-        assert_eq!(size_of::<Idt>(), size_of::<InterruptDescriptor>() * 256);
-    }
+      /// Tests that various structs passed to the CPU are the size that the CPU
+      /// expects them.
+      #[test_case]
+      fn structs_have_the_right_size() {
+            assert_eq!(size_of::<IntStackFrame>(), 40);
+            assert_eq!(size_of::<InterruptDescriptor>(), 16);
+            assert_eq!(
+                  size_of::<Idt>(),
+                  size_of::<InterruptDescriptor>() * 256
+            );
+      }
 }

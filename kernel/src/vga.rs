@@ -19,22 +19,29 @@
 /*!
     kernel/src/vga.rs
 
-    The vga module handles writing to the vga text buffer.
-    This file is responsible for initialising the VGA driver and drawing the topbar.
+    The vga module handles writing to the VGA text mode buffer,
+    (see https://en.wikipedia.org/wiki/VGA_text_mode).
+
+    This file is responsible for initialising the VGA driver
+    and drawing the topbar.
 
     Contains 3 submodules:
     * buffers.rs - Handles writing to and swapping between buffers
     * cursor.rs - Handles the vga text mode cursor
     * print.rs - Defines print macros
+
 */
 
-#[cfg(test)]
-use crate::tests::write_serial;
-use crate::{startup::ExitCode, sysinfo::SystemInfo};
+use core::convert::Infallible;
+use core::sync::atomic::Ordering;
+
 use buffers::RawBuffer;
-use core::{convert::Infallible, sync::atomic::Ordering};
 use cursor::{ALLOW_ROW_0, CursorPos};
 use print::Corner;
+
+use crate::startup::ExitCode;
+use crate::sysinfo::SystemInfo;
+#[cfg(test)] use crate::tests::write_serial;
 
 pub mod buffers;
 pub mod cursor;
@@ -47,41 +54,43 @@ pub mod print;
 /// # Safety
 /// The buffer must not be used ANYWHERE.
 pub unsafe fn init() -> ExitCode<Infallible> {
-    let buf = &raw mut buffers::BUFFER;
-    // Safety: The static isn't being used anywhere else and is being loaded with a valid buf.
-    unsafe { *buf = &mut *(Corner::TopLeft as usize as *mut RawBuffer) }
-    buffers::clear();
+      let buf = &raw mut buffers::BUFFER;
+      // Safety: The static isn't being used anywhere else and is being loaded
+      // with a valid buf.
+      unsafe { *buf = &mut *(Corner::TopLeft as usize as *mut RawBuffer) }
+      buffers::clear();
 
-    if cfg!(test) {
-        #[cfg(test)]
-        write_serial("\nRunning startup tests...\n");
-    } else {
-        print!("\nHello, ");
-        println!(fg = LightCyan, "Sunflower!\n");
-    }
+      if cfg!(test) {
+            #[cfg(test)]
+            write_serial("\nRunning startup tests...\n");
+      } else {
+            print!("\nHello, ");
+            println!(fg = LightCyan, "Sunflower!\n");
+      }
 
-    ExitCode::Infallible
+      ExitCode::Infallible
 }
 
 /// Draws the topbar, ran every second by [`crate::interrupts::kbd_poll_loop`].
 pub fn draw_topbar() {
-    // Print at the top left corner
-    let (prev_row, prev_col) = CursorPos::row_col();
-    ALLOW_ROW_0.store(true, Ordering::Relaxed);
-    CursorPos::set_row(0);
-    CursorPos::set_col(0);
+      // Print at the top left corner
+      let (prev_row, prev_col) = CursorPos::row_col();
+      ALLOW_ROW_0.store(true, Ordering::Relaxed);
+      CursorPos::set_row(0);
+      CursorPos::set_col(0);
 
-    let sysinfo = SystemInfo::now();
-    print!(
-        fg = Black,
-        bg = LightGrey,
-        "                  | Sunflower {:#6} | Help: SysRq / PrntScr F7 | {:#14}",
-        sysinfo.sfk_version,
-        sysinfo.patch_quote
-    );
+      let sysinfo = SystemInfo::now();
+      print!(
+            fg = Black,
+            bg = LightGrey,
+            "                  | Sunflower {:#6} | Help: \
+            SysRq / PrntScr F7 | {:#14}",
+            sysinfo.sfk_version,
+            sysinfo.patch_quote
+      );
 
-    // Restore previous vga state
-    ALLOW_ROW_0.store(false, Ordering::Relaxed);
-    CursorPos::set_row(prev_row);
-    CursorPos::set_col(prev_col);
+      // Restore previous vga state
+      ALLOW_ROW_0.store(false, Ordering::Relaxed);
+      CursorPos::set_row(prev_row);
+      CursorPos::set_col(prev_col);
 }

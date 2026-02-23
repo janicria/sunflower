@@ -23,10 +23,12 @@
     Contained within the floppy module
 */
 
+use core::sync::atomic::{AtomicU8, AtomicU16, Ordering};
+
+use libutil::InitError;
+
 use super::{DRIVE_ONE, FloppyPort};
 use crate::{ports, time};
-use core::sync::atomic::{AtomicU8, AtomicU16, Ordering};
-use libutil::InitError;
 
 /// How long is left before the floppy's motor is disabled.
 static MOTOR_TIME_LEFT: AtomicU16 = AtomicU16::new(0);
@@ -45,107 +47,107 @@ const MOTOR_OFF: u8 = 2;
 
 /// Enables the floppy's motor if it was disabled.
 pub fn enable_motor() -> Result<(), InitError<u16>> {
-    /// Drive 0's motor on, IRQs & DMA off, drive 0.
-    /// [`Reference`](https://wiki.osdev.org/Floppy_Disk_Controller#DOR_bitflag_definitions)
-    static DRIVE0_COMMAND: u8 = 0b01_0_1_00;
+      /// Drive 0's motor on, IRQs & DMA off, drive 0.
+      const DRIVE0_COMMAND: u8 = 0b01_0_1_00;
 
-    /// Drive 1's motor on, IRQs & DMA off, drive 1
-    static DRIVE1_COMMAND: u8 = 0b10_0_1_01;
+      /// Drive 1's motor on, IRQs & DMA off, drive 1
+      const DRIVE1_COMMAND: u8 = 0b10_0_1_01;
 
-    match MOTOR_STATE.load(Ordering::Relaxed) {
-        // The motor isn't on, enable it
-        MOTOR_OFF => {
+      match MOTOR_STATE.load(Ordering::Relaxed) {
+            MOTOR_OFF => send_enable_cmd()?,
+            MOTOR_DISABLING => MOTOR_STATE.store(MOTOR_ON, Ordering::Relaxed),
+            MOTOR_ON => (),
+            _state => {
+                  warn!("floppy: unknown motor state: {_state}")
+            }
+      }
+
+      return Ok(());
+
+      fn send_enable_cmd() -> Result<(), InitError<u16>> {
             let dor_port = FloppyPort::DigitalOutputRegister.add_offset()?;
 
             if DRIVE_ONE.load() {
-                // Safety: Check above ensure that drive 1 is being used
-                unsafe { ports::writeb(dor_port, DRIVE1_COMMAND) };
+                  // Safety: Check above ensures drive 1 is being used
+                  unsafe { ports::writeb(dor_port, DRIVE1_COMMAND) };
             } else {
-                // Safety: The check above ensure that drive 0 is being used
-                unsafe { ports::writeb(dor_port, DRIVE0_COMMAND) }
+                  // Safety: The check above ensures drive 0 is being used
+                  unsafe { ports::writeb(dor_port, DRIVE0_COMMAND) }
             }
 
             MOTOR_STATE.store(MOTOR_ON, Ordering::Relaxed);
             time::wait(50); // motor can take up to 500 ms to speed up
-            dbg_info!("floppy motor on!")
-        }
-
-        // The motor's already on, but waiting to be disabled
-        MOTOR_DISABLING => MOTOR_STATE.store(MOTOR_ON, Ordering::Relaxed),
-
-        // The motor was already enabled
-        _ => (),
-    }
-
-    Ok(())
+            dbg_info!("floppy: motor on!");
+            Ok(())
+      }
 }
 
 /// Enters the disabling state for the floppy's motor.
 pub fn disable_motor() {
-    /// Time until the motor will be disabled, in kernel ticks (10 Hz)
-    // Note: Due to the fetch_sub being used in decrease_motor_time, it's actually 51 ticks
-    static TIMEOUT: u16 = 50;
+      /// Time (plus one) until the motor is be disabled, in kernel ticks.
+      const TIMEOUT: u16 = 50;
 
-    MOTOR_TIME_LEFT.store(TIMEOUT, Ordering::Relaxed);
-    MOTOR_STATE.store(MOTOR_DISABLING, Ordering::Relaxed);
+      MOTOR_TIME_LEFT.store(TIMEOUT, Ordering::Relaxed);
+      MOTOR_STATE.store(MOTOR_DISABLING, Ordering::Relaxed);
 }
 
 /// Forcefully disables the floppy's motor.
 pub fn force_disable() {
-    MOTOR_STATE.store(MOTOR_DISABLING, Ordering::Relaxed);
-    MOTOR_TIME_LEFT.store(0, Ordering::Relaxed);
-    decrease_motor_time();
+      MOTOR_STATE.store(MOTOR_DISABLING, Ordering::Relaxed);
+      MOTOR_TIME_LEFT.store(0, Ordering::Relaxed);
+      decrease_motor_time();
 }
 
 /// Decreases the time until the motor will be disabled.
 /// Called by the timer handler every 10 ms.
 #[unsafe(export_name = "dec_floppy_motor_time")]
 pub extern "sysv64" fn decrease_motor_time() {
-    /// Drive 0's motor off, IRQs & DMA off, drive 0.
-    /// [`Reference`](https://wiki.osdev.org/Floppy_Disk_Controller#DOR_bitflag_definitions)
-    static DRIVE0_COMMAND: u8 = 0b00_0_1_00;
+      /// Drive 0's motor off, IRQs & DMA off, drive 0 selected.
+      const DRIVE0_COMMAND: u8 = 0b00_0_1_00;
 
-    /// Drive 1's motor off, IRQs & DMA off, drive 1
-    static DRIVE1_COMMAND: u8 = 0b00_0_1_01;
+      /// Drive 1's motor off, IRQs & DMA off, drive 1 selected.
+      const DRIVE1_COMMAND: u8 = 0b00_0_1_01;
 
-    // If the motor's time has run out, disable it
-    if MOTOR_STATE.load(Ordering::Relaxed) == MOTOR_DISABLING
-        && MOTOR_TIME_LEFT.fetch_sub(1, Ordering::Relaxed) == 0
-        && let Ok(dor) = FloppyPort::DigitalOutputRegister.add_offset()
-    {
-        dbg_info!("floppy motor off!");
-        if DRIVE_ONE.load() {
-            // Safety: Check above ensure that drive 1 is being used
-            unsafe { ports::writeb(dor, DRIVE1_COMMAND) }
-        } else {
-            // Safety: The check above ensure that drive 0 is being used
-            unsafe { ports::writeb(dor, DRIVE0_COMMAND) }
-        }
+      if MOTOR_STATE.load(Ordering::Relaxed) == MOTOR_DISABLING &&
+            MOTOR_TIME_LEFT.fetch_sub(1, Ordering::Relaxed) == 0 &&
+            let Ok(dor) = FloppyPort::DigitalOutputRegister.add_offset()
+      {
+            send_disable_cmd(dor);
+      }
 
-        MOTOR_STATE.store(MOTOR_OFF, Ordering::Relaxed);
-    }
+      fn send_disable_cmd(dor: u16) {
+            if DRIVE_ONE.load() {
+                  // Safety: Check above ensure that drive 1 is being used
+                  unsafe { ports::writeb(dor, DRIVE1_COMMAND) }
+            } else {
+                  // Safety: The check above ensure that drive 0 is being used
+                  unsafe { ports::writeb(dor, DRIVE0_COMMAND) }
+            }
+
+            dbg_info!("floppy: motor off!");
+            MOTOR_STATE.store(MOTOR_OFF, Ordering::Relaxed);
+      }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+      use super::*;
 
-    /// Tests that disable motor keeps the motor running for a brief period.
-    #[test_case]
-    fn disable_motor_keeps_motor_running() {
-        _ = enable_motor();
-        disable_motor();
-
-        time::wait(1);
-        let time: u64 = time::get_time();
-
-        for _ in 0..16 {
-            // Shouldn't wait 500-520 ms each since the motor isn't actually off
+      /// Tests that disable motor keeps the motor running for a brief period.
+      #[test_case]
+      fn disable_motor_keeps_motor_running() {
             _ = enable_motor();
-        }
+            disable_motor();
 
-        time::wait(1);
-        assert!(time::get_time() - time < 5); // less than 5 tick difference
-        disable_motor(); // actually disable the motor
-    }
+            time::wait(1);
+            let time: u64 = time::get_time();
+
+            for _ in 0..16 {
+                  _ = enable_motor(); // shouldn't wait 500-520 ms each
+            }
+
+            time::wait(1);
+            assert!(time::get_time() - time < 5);
+            disable_motor(); // actually disable the motor
+      }
 }

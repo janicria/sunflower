@@ -19,18 +19,21 @@
 /*!
     kernel/src/sysinfo.rs
 
-    Handles CPUID and most of the kernel's system information via the [`SystemInfo`]` type
+    Handles CPUID and most of the kernel's
+    system information via the [`SystemInfo`]` type
 */
 
-use crate::{
-    floppy::{self, disk, floppyfs},
-    gdt::{self, Gdt},
-    interrupts::{self, Idt},
-    startup::{self, ExitCode},
-    time::{self, Time},
-};
-use core::{arch::asm, fmt::Display, sync::atomic::Ordering};
+use core::arch::asm;
+use core::fmt::Display;
+use core::sync::atomic::Ordering;
+
 use libutil::{InitError, TableDescriptor};
+
+use crate::floppy::{self, disk, floppyfs};
+use crate::gdt::{self, Gdt};
+use crate::interrupts::{self, Idt};
+use crate::startup::{self, ExitCode};
+use crate::time::{self, Time};
 
 /// Parses an environment variable as an int an compile time.
 #[macro_export]
@@ -38,182 +41,174 @@ macro_rules! env_as_int {
     ($env: expr, $t: ty) => {
         match <$t>::from_str_radix(env!($env), 10) {
             Ok(v) => v,
-            Err(_) => $crate::PANIC!(const concat!("Failed parsing env var ", $env)),
+            Err(_) => {
+                $crate::PANIC!(const concat!("Failed parsing env var ", $env))
+            },
         }
     };
 }
 
-/// CPU Vendor ID returned from cpuid.
-#[unsafe(no_mangle)]
-static mut VENDOR: [u8; 12] = *b"Unknown     ";
-
-/// Checks if the [cpuid](https://wiki.osdev.org/CPUID) instruction can be used.
+/// Checks if the cpuid  instruction can be used.
+///
 /// # Safety
-/// The [`VENDOR`] static must not be accessed anywhere during the lifetime of this function.
+/// Only run once at startup.
 pub unsafe fn check_cpuid() -> ExitCode<&'static str> {
-    unsafe {
-        asm!(
-            "push rax",                        // save rax
-            "pushf",                           // store eflags
-            "pushf",                           // store again due to popping it again later
+      #[unsafe(export_name = "reg_bkp")]
+      static mut REG_BKP: [u32; 6] = [0; 6];
+
+      macro_rules! xchg_regs {
+            () => {
+                  "
+            xchg edx,  [reg_bkp + 0]
+            xchg ecx,  [reg_bkp + 1]
+            xchg rax,  [reg_bkp + 2]
+            xchg rbx,  [reg_bkp + 4]"
+            };
+      }
+
+      unsafe {
+            asm!(
+            xchg_regs!(),
+            "pushf",
+            "pushf",
             "xor dword ptr [rsp], 0x00200000", // invert id bit
-            "popf",                            // load flags with inverted id bit
-            "pushf",                           // store eflags with inverted bit if cpuid is supported
-            "pop rax",                         // rax = eflags with inverted id bit
-            "xor rax, [rsp]",                  // rax = modified bits
-            "popf",                            // restore eflags
-            "and rax, 0x00200000",             // if rax != 0 cpuid is supported
-            "cmp rax, 0",                      // check if rax == 0
-            "pop rax",                         // restore rax
-            "jne {}",                          // if not, we can use cpuid
-            label { unsafe { return load_vendor() } }
-        )
-    };
-
-    ExitCode::Error("Instruction not present")
-}
-
-/// Runs cpuid and returns it's info in the `VENDOR` static.
-/// # Safety
-/// The cpuid instruction must be available.
-#[inline(never)] // NOTE: check_cpuid expects this to NOT be inlined and page faults if it is!!
-unsafe fn load_vendor() -> ExitCode<&'static str> {
-    /// Where eax, ebx, edx, ecx and rbx are saved during cpuid.
-    #[unsafe(no_mangle)]
-    static mut REG_BKP: [u32; 4] = [0; 4];
-
-    macro_rules! xchg_regs {
-        () => {
-            "xchg eax, [REG_BKP + 0]
-            xchg ebx,  [REG_BKP + 1]
-            xchg edx,  [REG_BKP + 2]
-            xchg ecx,  [REG_BKP + 3]"
-        };
-    }
-
-    // Load cpuid into static
-    unsafe {
-        asm!(
-            "push rbx",
-            xchg_regs!(),            // save regs
-            "cpuid",                 // the actual instruction
-            "mov [VENDOR + 0], ebx", // first 4 letters
-            "mov [VENDOR + 4], edx", // next 4 letters
-            "mov [VENDOR + 8], ecx", // last 4 letters
-            xchg_regs!(),            // restore regs
-            "pop rbx",
+            "popf",                // load eflags with inverted bit
+            "pushf",               // bit will remain inverted if cpuid
+            "pop rax",
+            "xor rax, [rsp]",      // rax = modified bits
+            "popf",                // restore eflags
+            "and rax, 0x00200000", // cpuid is supported if rax != 0
+            "cmp rax, 0",
+            "je {}",               // fail if not supported
+            label { return ExitCode::Error("Instruction not present") },
             options(preserves_flags)
-        )
-    };
+            )
+      };
 
-    if get_cpuid().is_none() {
-        return ExitCode::Error("Non UTF-8 vendor ID");
-    }
-    ExitCode::Ok
+      unsafe {
+            asm!(
+                  "cpuid",
+                  "mov [cpuid_vendor + 0], ebx",
+                  "mov [cpuid_vendor + 4], edx",
+                  "mov [cpuid_vendor + 8], ecx",
+                  xchg_regs!(),
+                  options(preserves_flags)
+            )
+      };
+
+      ExitCode::Ok
 }
 
-/// Tries to return the value of the `VENDOR` static as a str.
-fn get_cpuid() -> Option<&'static str> {
-    unsafe { str::from_utf8(&*&raw const VENDOR).ok() }
+/// Returns the cpuid vendor string.
+pub fn get_vendor_str() -> &'static str {
+      #[unsafe(export_name = "cpuid_vendor")]
+      static mut VENDOR: [u8; 12] = *b"Unknown     ";
+      // Safety: VENDOR is only ever written to once at startup
+      let v = unsafe { &*&raw const VENDOR };
+
+      if let Ok(s) = str::from_utf8(v) {
+            s
+      } else {
+            "Unknown VStr"
+      }
 }
 
 /// Information about the system gathered from across the kernel.
 pub struct SystemInfo {
-    // Sunflower version
-    pub sfk_version: &'static str,
-    pub patch_quote: &'static str,
+      // Sunflower version
+      pub sfk_version: &'static str,
+      pub patch_quote: &'static str,
 
-    // Actually important info
-    pub cpu_vendor: &'static str,
-    pub debug: bool,
+      // Actually important info
+      pub cpu_vendor: &'static str,
+      pub debug:      bool,
 
-    // Floppy
-    pub floppy_offset: Result<&'static u16, InitError<u16>>,
-    pub floppy_space: Result<&'static u16, InitError<u16>>,
-    pub floppy_drive: u8,
-    pub fdc_init: bool,
-    pub floppyfs_init: bool,
-    pub floppy_read_bytes: u64,
-    pub floppy_written_bytes: u64,
+      // Floppy
+      pub floppy_offset:        Result<&'static u16, InitError<u16>>,
+      pub floppy_space:         Result<&'static u16, InitError<u16>>,
+      pub floppy_drive:         u8,
+      pub fdc_init:             bool,
+      pub floppyfs_init:        bool,
+      pub floppy_read_bytes:    u64,
+      pub floppy_written_bytes: u64,
 
-    // Time
-    pub time: u64,
-    pub time_secs: u64,
-    pub date: Result<&'static Time, InitError<Time>>,
+      // Time
+      pub time:      u64,
+      pub time_secs: u64,
+      pub date:      Result<&'static Time, InitError<Time>>,
 
-    // Descriptors and such
-    pub gdt_init: bool,
-    pub gdt_descriptor: TableDescriptor<Gdt>,
-    pub idt_init: bool,
-    pub idt_descriptor: TableDescriptor<Idt>,
+      // Descriptors and such
+      pub gdt_init:       bool,
+      pub gdt_descriptor: TableDescriptor<Gdt>,
+      pub idt_init:       bool,
+      pub idt_descriptor: TableDescriptor<Idt>,
 
-    // Misc flags
-    pub pic_init: bool,
-    pub pit_init: bool,
-    pub kbd_init: bool,
-    pub disable_enter: bool,
+      // Misc flags
+      pub pic_init:      bool,
+      pub pit_init:      bool,
+      pub kbd_init:      bool,
+      pub disable_enter: bool,
 }
 
 impl SystemInfo {
-    /// Returns the current info about the system.
-    pub fn now() -> Self {
-        let time = time::get_time();
+      /// Returns the current info about the system.
+      pub fn now() -> Self {
+            let time = time::get_time();
 
-        SystemInfo {
-            // Version env vars passed via build script
-            sfk_version: env!("SFK_VERSION"),
-            patch_quote: env!("SFK_PATCH_QUOTE"),
+            SystemInfo {
+                  // Version env vars passed via build script
+                  sfk_version: env!("SFK_VERSION"),
+                  patch_quote: env!("SFK_PATCH_QUOTE"),
 
-            cpu_vendor: get_cpuid().unwrap_or("Unknown"),
-            debug: cfg!(feature = "debug_info"),
+                  cpu_vendor: get_vendor_str(),
+                  debug: cfg!(feature = "debug_info"),
 
-            floppy_offset: floppy::BASE_OFFSET.read(),
-            floppy_space: floppy::FLOPPY_SPACE.read(),
-            floppy_drive: floppy::DRIVE_ONE.load() as u8,
-            fdc_init: startup::FLOPPY_INIT.load(),
-            floppyfs_init: floppyfs::FLOPPYFS_INIT.load(Ordering::Relaxed),
-            floppy_read_bytes: disk::DISK_READ_BYTES.load(Ordering::Relaxed),
-            floppy_written_bytes: disk::DISK_WRITTEN_BYTES.load(Ordering::Relaxed),
+                  floppy_offset: floppy::BASE_OFFSET.read(),
+                  floppy_space: floppy::FLOPPY_SPACE.read(),
+                  floppy_drive: floppy::DRIVE_ONE.load() as u8,
+                  fdc_init: startup::FLOPPY_INIT.load(),
+                  floppyfs_init: floppyfs::FLOPPYFS_INIT
+                        .load(Ordering::Relaxed),
+                  floppy_read_bytes: disk::READ_BYTES.load(Ordering::Relaxed),
+                  floppy_written_bytes: disk::WRITTEN_BYTES
+                        .load(Ordering::Relaxed),
 
-            time,
-            time_secs: time / 100,
-            date: time::LAUNCH_TIME.read(),
+                  time,
+                  time_secs: time / 100,
+                  date: time::LAUNCH_TIME.read(),
 
-            gdt_init: gdt::GDT.read().is_ok(),
-            gdt_descriptor: gdt::gdt_register(),
-            idt_init: interrupts::IDT.read().is_ok(),
-            idt_descriptor: interrupts::idt_register(),
+                  gdt_init: gdt::GDT.read().is_ok(),
+                  gdt_descriptor: gdt::gdt_register(),
+                  idt_init: interrupts::IDT.read().is_ok(),
+                  idt_descriptor: interrupts::idt_register(),
 
-            disable_enter: cfg!(feature = "disable_enter"),
-            pic_init: startup::PIC_INIT.load(),
-            pit_init: startup::PIT_INIT.load(),
-            kbd_init: startup::KBD_INIT.load(),
-        }
-    }
+                  disable_enter: cfg!(feature = "disable_enter"),
+                  pic_init: startup::PIC_INIT.load(),
+                  pit_init: startup::PIT_INIT.load(),
+                  kbd_init: startup::KBD_INIT.load(),
+            }
+      }
 }
 
 impl Display for SystemInfo {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        // Write the first few fields
-        write!(
-            f,
-            "Sunflower version: {}
+      fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(
+                  f,
+                  "Sunflower version: {}
 CPU Vendor: {}
 Debug build: {}
 Launch time: ",
-            self.sfk_version, self.cpu_vendor, self.debug,
-        )?;
+                  self.sfk_version, self.cpu_vendor, self.debug,
+            )?;
 
-        // Write launch time
-        match self.date {
-            Ok(time) => writeln!(f, "{time}"),
-            Err(ref e) => writeln!(f, "Failed fetching time - {e}"),
-        }?;
+            match self.date {
+                  Ok(time) => writeln!(f, "{time}"),
+                  Err(ref e) => writeln!(f, "Failed fetching time - {e}"),
+            }?;
 
-        // Write the rest of the fields
-        write!(
-            f,
-            "Uptime: {} ({}h {}m {}s)
+            write!(
+                  f,
+                  "Uptime: {} ({}h {}m {}s)
 
 Disable enter: {}
 PIC initialised: {}
@@ -221,37 +216,37 @@ PIT initialised: {}
 KBD initialised: {}
 GDT init: {} with {}
 IDT init: {} with {}\n",
-            self.time,
-            self.time_secs / 3600,      // hours
-            (self.time_secs / 60) % 60, // mins
-            self.time_secs % 60,        // secs
-            self.disable_enter,
-            self.pic_init,
-            self.pit_init,
-            self.kbd_init,
-            self.gdt_init,
-            self.gdt_descriptor,
-            self.idt_init,
-            self.idt_descriptor,
-        )?;
+                  self.time,
+                  self.time_secs / 3600,      // hours
+                  (self.time_secs / 60) % 60, // mins
+                  self.time_secs % 60,        // secs
+                  self.disable_enter,
+                  self.pic_init,
+                  self.pit_init,
+                  self.kbd_init,
+                  self.gdt_init,
+                  self.gdt_descriptor,
+                  self.idt_init,
+                  self.idt_descriptor,
+            )?;
 
-        // Write floppy
-        write!(
-            f,
-            "\nFloppy offset: 0x{:X}
+            // Write floppy
+            write!(
+                  f,
+                  "\nFloppy offset: 0x{:X}
 Floppy space: {} kB,
 Floppy drive number: {}
 Floppy init: {}
 Floppyfs init: {}
 Floppy bytes read: {}
 Floppy bytes written: {}",
-            self.floppy_offset.as_ref().unwrap_or(&&0),
-            self.floppy_space.as_ref().unwrap_or(&&0),
-            self.floppy_drive,
-            self.fdc_init,
-            self.floppyfs_init,
-            self.floppy_read_bytes,
-            self.floppy_written_bytes
-        )
-    }
+                  self.floppy_offset.as_ref().unwrap_or(&&0),
+                  self.floppy_space.as_ref().unwrap_or(&&0),
+                  self.floppy_drive,
+                  self.fdc_init,
+                  self.floppyfs_init,
+                  self.floppy_read_bytes,
+                  self.floppy_written_bytes
+            )
+      }
 }

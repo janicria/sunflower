@@ -1,6 +1,7 @@
+use std::{fs, io};
+
 use chrono::{Datelike, Local};
 use serde::Deserialize;
-use std::{fs, io};
 use thiserror::Error;
 use toml::de;
 
@@ -10,24 +11,24 @@ const VERSION: &str = "../VERSION";
 /// The parsed VERSION file.
 #[derive(Deserialize)]
 pub struct Version {
-    kernel: Kernel,
-    floppyfs: FloppyFs,
+      kernel:   Kernel,
+      floppyfs: FloppyFs,
 }
 
 /// The kernel's version fields.
 #[derive(Deserialize)]
 pub struct Kernel {
-    version_major: String,
-    version_minor: String,
-    version_patch: String,
-    patch_quote: String,
+      version_major: String,
+      version_minor: String,
+      version_patch: String,
+      patch_quote:   String,
 }
 
 /// When the filesystem driver was last updated.
 #[derive(Deserialize)]
 pub struct FloppyFs {
-    day: u16,
-    year: u16,
+      day:  u16,
+      year: u16,
 }
 
 /// Parses the VERSION file ands sends it to sunflower through environment variables.
@@ -50,9 +51,9 @@ fn main() -> Result<(), ParseVersionError> {
 
 #[derive(Error, Debug)]
 enum ParseVersionError {
-    #[error("failed reading the VERSION file: {0}")]
-    IOError(#[from] io::Error),
+      #[error("failed reading the VERSION file: {0}")]
+      IOError(#[from] io::Error),
 
-    #[error("failed parsing the VERSION file: {0}")]
-    ParseError(#[from] de::Error),
+      #[error("failed parsing the VERSION file: {0}")]
+      ParseError(#[from] de::Error),
 }
